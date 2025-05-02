@@ -45,15 +45,15 @@ get_topics() ->
     % First get local topics
     LocalTopics = get_local_topics(),
     
-    % Then get the ring to know all nodes
-    Ring = sp_dht:get_ring(),
-    
     % Get our node info to avoid querying ourselves
     {MyNodeId, _} = sp_dht:get_node_info(),
     
-    % Get topics from all other nodes
+    % Get list of physical nodes (deduplicated)
+    PhysicalNodes = sp_dht:get_physical_nodes(),
+    
+    % Get topics from all other physical nodes
     AllTopics = lists:foldl(
-        fun({_, NodeId, NodeAddr}, Acc) ->
+        fun({NodeId, NodeAddr}, Acc) ->
             % Skip our own node
             case NodeId of
                 MyNodeId -> 
@@ -69,7 +69,7 @@ get_topics() ->
             end
         end,
         LocalTopics,
-        Ring
+        PhysicalNodes
     ),
     
     % Return unique topics
@@ -166,16 +166,13 @@ handle_call(_, _From, State) ->
 
 handle_cast({register_topic, Topic, SCs}, State) ->
     % Determine if this node is responsible for the topic
-    IsResponsible = sp_dht:is_responsible(Topic, State#state.node_id, State#state.replication_factor),
-    
-    if 
-        IsResponsible ->
+    case sp_dht:is_responsible(Topic, State#state.node_id, State#state.replication_factor) of
+        true ->
             % Store locally
             NewLocalTopics = maps:put(Topic, SCs, State#state.local_topics),
             
             % Replicate to other responsible nodes
             ResponsibleNodes = sp_dht:find_responsible_nodes(Topic, State#state.replication_factor),
-            [NodeId || {NodeId, _} <- ResponsibleNodes, NodeId =/= State#state.node_id],
             
             % Send to each replica (excluding ourselves)
             lists:foreach(
@@ -190,12 +187,13 @@ handle_cast({register_topic, Topic, SCs}, State) ->
             ),
             
             {noreply, State#state{local_topics = NewLocalTopics}};
-        true ->
+        false ->
             % Forward to a responsible node
             ResponsibleNodes = sp_dht:find_responsible_nodes(Topic, 1),
             case ResponsibleNodes of
                 [{_NodeId, NodeAddr}|_] ->
-                    sp_node_comm:forward_register_topic(NodeAddr, Topic, SCs);
+                    sp_node_comm:forward_register_topic(NodeAddr, Topic, SCs),
+                    {noreply, State}; % ADDED MISSING RETURN VALUE
                 [] ->
                     % Fallback - store locally if no node found
                     NewLocalTopics = maps:put(Topic, SCs, State#state.local_topics),
@@ -224,13 +222,18 @@ handle_cast(_, State) ->
 
 handle_info({redistribute_topics, NewNodeId, NewNodeAddr}, State) ->
     % Check which of our local topics should now be handled by the new node
+    % We should only redistribute topics that this node is no longer
+    % the primary responsible node for (first in the responsible list)
     TopicsToRedistribute = maps:fold(
         fun(Topic, SCs, Acc) ->
+            % Check if we're still the primary responsible node
             ResponsibleNodes = sp_dht:find_responsible_nodes(Topic, 1),
             case ResponsibleNodes of
                 [{NodeId, _}|_] when NodeId =:= NewNodeId ->
+                    % New node is now primary, we should redistribute
                     [{Topic, SCs}|Acc];
                 _ ->
+                    % We or someone else is still primary, keep it
                     Acc
             end
         end,

@@ -4,15 +4,17 @@
     init/3, 
     join/3,
     hash_key/1, 
-    hash_node/1,
+    hash_node/2,
     find_responsible_nodes/2, 
     is_responsible/3,
     get_node_info/0,
     get_ring/0,
-    update_ring/1
+    update_ring/1,
+    get_physical_nodes/0
 ]).
 
 -define(HASH_MOD, 1024).
+-define(VNODES_PER_NODE, 5). % Number of virtual nodes per physical node
 
 % Initialize the DHT
 init(NodeId, NodeAddr, ReplicationFactor) ->
@@ -72,9 +74,9 @@ hash_key(Key) ->
     <<Int:160/integer>> = HashBin,
     Int rem ?HASH_MOD.
 
-% Hash a node using {NodeId, IP, Port}
-hash_node({NodeId, IP, Port}) ->
-    Composite = {NodeId, IP, Port},
+% Hash a node using {NodeId, IP, Port, VNodeIndex}
+hash_node({NodeId, IP, Port}, VNodeIndex) ->
+    Composite = {NodeId, IP, Port, VNodeIndex},
     HashBin = crypto:hash(sha, term_to_binary(Composite)),
     <<Int:160/integer>> = HashBin,
     Int rem ?HASH_MOD.
@@ -113,6 +115,21 @@ get_ring() ->
         []
     end.
 
+% Get list of physical nodes (without virtual node duplicates)
+get_physical_nodes() ->
+    Ring = get_ring(),
+    PhysicalNodes = lists:foldl(
+        fun({_, NodeId, NodeAddr, _}, Acc) ->
+            case lists:keyfind(NodeId, 1, Acc) of
+                {NodeId, _} -> Acc;
+                false -> [{NodeId, NodeAddr} | Acc]
+            end
+        end,
+        [],
+        Ring
+    ),
+    PhysicalNodes.
+
 % Update ring
 update_ring(NewRing) ->
     sp_dht_proc ! {update_ring, NewRing},
@@ -120,30 +137,50 @@ update_ring(NewRing) ->
 
 % Register self
 self_register(NodeId, NodeAddr) ->
-    IP = element(1, NodeAddr),
-    Port = element(2, NodeAddr),
-    NodeHash = hash_node({NodeId, IP, Port}),
-    io:format("Registering node: ~p with hash ~p~n", [NodeId, NodeHash]),
-    sp_dht_proc ! {register_node, NodeId, NodeAddr, NodeHash},
+    % Create multiple virtual nodes for this physical node
+    lists:foreach(
+        fun(VNodeIndex) ->
+            {Ip, Port} = NodeAddr,
+            NodeHash = hash_node({NodeId, Ip, Port}, VNodeIndex),
+            io:format("Registering virtual node ~p: ~p with hash ~p~n", [VNodeIndex, NodeId, NodeHash]),
+            sp_dht_proc ! {register_node, NodeId, NodeAddr, NodeHash, VNodeIndex}
+        end,
+        lists:seq(0, ?VNODES_PER_NODE - 1)
+    ),
     ok.
 
 % Main DHT loop
 dht_loop(NodeId, NodeAddr, ReplicationFactor) ->
-    IP = element(1, NodeAddr),
-    Port = element(2, NodeAddr),
-    NodeHash = hash_node({NodeId, IP, Port}),
-    io:format("Initial node hash for ~p: ~p~n", [NodeId, NodeHash]),
-    dht_loop(NodeId, NodeAddr, ReplicationFactor, [{NodeHash, NodeId, NodeAddr}]).
+    % Initialize with multiple virtual nodes
+    InitialRing = lists:map(
+        fun(VNodeIndex) ->
+            {Ip, Port} = NodeAddr,
+            Hash = hash_node({NodeId, Ip, Port}, VNodeIndex),
+            {Hash, NodeId, NodeAddr, VNodeIndex}
+        end,
+        lists:seq(0, ?VNODES_PER_NODE - 1)
+    ),
+    
+    SortedRing = lists:sort(
+        fun({Hash1, _, _, _}, {Hash2, _, _, _}) -> 
+            Hash1 =< Hash2 
+        end, 
+        InitialRing
+    ),
+    
+    io:format("Initial ring with ~p virtual nodes: ~p~n", [length(SortedRing), SortedRing]),
+    dht_loop(NodeId, NodeAddr, ReplicationFactor, SortedRing).
 
 dht_loop(NodeId, NodeAddr, ReplicationFactor, Ring) ->
     receive
-        {register_node, Id, Addr, Hash} ->
-            NewRing = add_to_ring({Hash, Id, Addr}, Ring),
-            io:format("Ring updated after registering ~p: ~p~n", [Id, NewRing]),
+        {register_node, Id, Addr, Hash, VNodeIndex} ->
+            NewRing = add_to_ring({Hash, Id, Addr, VNodeIndex}, Ring),
+            io:format("Ring updated after registering virtual node ~p for ~p: ~p~n", 
+                     [VNodeIndex, Id, length(NewRing)]),
             dht_loop(NodeId, NodeAddr, ReplicationFactor, NewRing);
 
         {update_ring, NewRing} ->
-            io:format("Ring updated with external data: ~p~n", [NewRing]),
+            io:format("Ring updated with external data: ~p~n", [length(NewRing)]),
             dht_loop(NodeId, NodeAddr, ReplicationFactor, NewRing);
 
         {get_ring, Pid} ->
@@ -155,6 +192,7 @@ dht_loop(NodeId, NodeAddr, ReplicationFactor, Ring) ->
             dht_loop(NodeId, NodeAddr, ReplicationFactor, Ring);
 
         {find_responsible, Key, KeyHash, RF, Pid} ->
+            % Find unique physical nodes that are responsible
             ResponsibleNodes = find_unique_successors(KeyHash, Ring, RF),
             io:format("Find responsible for key ~p (hash: ~p): ~p~n", [Key, KeyHash, ResponsibleNodes]),
             Pid ! {responsible_nodes, ResponsibleNodes},
@@ -162,19 +200,24 @@ dht_loop(NodeId, NodeAddr, ReplicationFactor, Ring) ->
     end.
 
 % Add to ring
-add_to_ring(NewNode = {_Hash, Id, _Addr}, Ring) ->
+add_to_ring(NewNode = {Hash, Id, Addr, VNodeIndex}, Ring) ->
+    % First remove existing entry with same virtual node index for this node ID
     FilteredRing = lists:filter(
-        fun({_, NodeId, _}) -> NodeId =/= Id end,
+        fun({_, NodeId, _, VIdx}) -> 
+            not (NodeId =:= Id andalso VIdx =:= VNodeIndex)
+        end,
         Ring
     ),
+    
+    % Add the new node and sort
     lists:sort(
-        fun({Hash1, _, _}, {Hash2, _, _}) -> Hash1 =< Hash2 end, 
+        fun({Hash1, _, _, _}, {Hash2, _, _, _}) -> Hash1 =< Hash2 end, 
         [NewNode | FilteredRing]
     ).
 
-% Find N unique successors
+% Find N unique successors, ensuring we get unique physical nodes
 find_unique_successors(Hash, Ring, N) ->
-    SortedRing = lists:sort(fun({Hash1, _, _}, {Hash2, _, _}) -> Hash1 =< Hash2 end, Ring),
+    SortedRing = lists:sort(fun({Hash1, _, _, _}, {Hash2, _, _, _}) -> Hash1 =< Hash2 end, Ring),
     find_unique_successors_impl(Hash, SortedRing, N, [], sets:new()).
 
 find_unique_successors_impl(_, _, 0, Acc, _) ->
@@ -184,22 +227,22 @@ find_unique_successors_impl(_Hash, [], N, Acc, _Seen) when N > 0 ->
 find_unique_successors_impl(Hash, SortedRing, N, Acc, Seen) ->
     {NewAcc, NewSeen, Remaining} = find_successors_pass(
         Hash, SortedRing, N, Acc, Seen, 
-        fun({NodeHash, _, _}) -> NodeHash >= Hash end
+        fun({NodeHash, _, _, _}) -> NodeHash >= Hash end
     ),
     if 
         Remaining > 0 ->
-            {_FinalAcc, FinalSeen, _} = find_successors_pass(
+            {FinalAcc, _, _} = find_successors_pass(
                 Hash, SortedRing, Remaining, NewAcc, NewSeen, 
                 fun(_) -> true end
             ),
-            lists:reverse(_FinalAcc);
+            lists:reverse(FinalAcc);
         true ->
             lists:reverse(NewAcc)
     end.
 
 find_successors_pass(_Hash, SortedRing, N, Acc, Seen, FilterFun) ->
     lists:foldl(
-        fun(Node = {_, NodeId, NodeAddr}, {AccNodes, SeenIds, Count}) ->
+        fun(Node = {_, NodeId, NodeAddr, _}, {AccNodes, SeenIds, Count}) ->
             if 
                 Count =< 0 ->
                     {AccNodes, SeenIds, Count};

@@ -68,8 +68,21 @@ get_remote_topics({Ip, Port}) ->
 
 % Broadcast ring update to all nodes in the ring
 broadcast_ring_update(Ring) ->
+    % Get unique physical nodes from the ring
+    UniqueNodes = lists:foldl(
+        fun({_, NodeId, {Ip, Port}, _}, Acc) ->
+            case lists:keymember(NodeId, 1, Acc) of
+                true -> Acc;
+                false -> [{NodeId, {Ip, Port}} | Acc]
+            end
+        end,
+        [],
+        Ring
+    ),
+    
+    % Send update to each unique physical node
     lists:foreach(
-        fun({_, _, {Ip, Port}}) ->
+        fun({_, {Ip, Port}}) ->
             try
                 {ok, Socket} = gen_tcp:connect(Ip, Port + 1, [binary, {packet, 4}, {active, false}]),
                 Request = term_to_binary({update_ring, Ring}),
@@ -79,7 +92,7 @@ broadcast_ring_update(Ring) ->
                 _:_ -> ok % Ignore connection failures
             end
         end,
-        Ring
+        UniqueNodes
     ).
 
 %% Private functions
@@ -119,9 +132,22 @@ handle_node_request(Socket) ->
                     % A new node is joining
                     CurrentRing = sp_dht:get_ring(),
                     {Ip, Port} = NodeAddr,
-                    NewRing = [{sp_dht:hash_node({NodeId, Ip, Port}), NodeId, NodeAddr} | CurrentRing],
+                    
+                    % Create virtual nodes for the new physical node
+                    VNodes = lists:map(
+                        fun(VNodeIndex) ->
+                            Hash = sp_dht:hash_node({NodeId, Ip, Port}, VNodeIndex),
+                            {Hash, NodeId, NodeAddr, VNodeIndex}
+                        end,
+                        lists:seq(0, 19) % 20 virtual nodes
+                    ),
+                    
+                    % Combine with current ring
+                    NewRing = VNodes ++ CurrentRing,
+                    
+                    % Sort by hash
                     SortedRing = lists:sort(
-                        fun({Hash1, _, _}, {Hash2, _, _}) -> Hash1 =< Hash2 end, 
+                        fun({Hash1, _, _, _}, {Hash2, _, _, _}) -> Hash1 =< Hash2 end, 
                         NewRing
                     ),
                     

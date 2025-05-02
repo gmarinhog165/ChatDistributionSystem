@@ -3,66 +3,77 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
+/**
+ * Classe principal para teste de clientes SP
+ */
 public class TestSPClientMain {
     public static void main(String[] args) {
         try {
-            // Basic test connecting to SP node
-            runBasicTest();
+            // Parâmetros padrão
+            String host = "localhost";
+            int port = 8000; // Porta padrão para o primeiro nó
             
-            // Interactive test
-            runInteractiveTest();
+            // Verifica argumentos da linha de comando
+            if (args.length >= 1) {
+                host = args[0];
+            }
+            if (args.length >= 2) {
+                port = Integer.parseInt(args[1]);
+            }
+            
+            // Menu de opções
+            Scanner scanner = new Scanner(System.in);
+            System.out.println("=== SP Client Test Tool ===");
+            System.out.println("1. Run interactive test");
+            System.out.println("2. Run automated tests");
+            System.out.println("3. Run stress test");
+            System.out.println("4. Run shell mode");
+            System.out.print("Escolha uma opção: ");
+            
+            String option = scanner.nextLine();
+            
+            switch (option) {
+                case "1":
+                    runInteractiveTest(host, port, scanner);
+                    break;
+                case "2":
+                    runAutomatedTests(host, port);
+                    break;
+                case "3":
+                    runStressTest(host, port, scanner);
+                    break;
+                case "4":
+                    runShellMode(host, port, scanner);
+                    break;
+                default:
+                    System.out.println("Opção inválida.");
+            }
+            
+            scanner.close();
             
         } catch (Exception e) {
-            System.err.println("Error in test: " + e.getMessage());
+            System.err.println("Erro: " + e.getMessage());
             e.printStackTrace();
         }
     }
     
-    private static void runBasicTest() throws IOException {
-        System.out.println("Running basic SP client test...");
-        
-        TestSPClient client = new TestSPClient("localhost", 8080);
-        
-        // Register some topics with chat servers
-        List<TestSPClient.ServerAddress> sportServers = new ArrayList<>();
-        sportServers.add(new TestSPClient.ServerAddress("127.0.0.1", 9001));
-        sportServers.add(new TestSPClient.ServerAddress("127.0.0.1", 9002));
-        client.registerTopic("esportes", sportServers);
-        
-        List<TestSPClient.ServerAddress> musicServers = new ArrayList<>();
-        musicServers.add(new TestSPClient.ServerAddress("127.0.0.1", 9003));
-        client.registerTopic("música", musicServers);
-        
-        // Get all topics
-        List<String> topics = client.getTopics();
-        System.out.println("Available topics: " + topics);
-        
-        // Get servers for a specific topic
-        if (!topics.isEmpty()) {
-            String testTopic = topics.get(0);
-            List<TestSPClient.ServerAddress> servers = client.getServersForTopic(testTopic);
-            System.out.println("Servers for topic '" + testTopic + "': " + servers);
-        }
-        
-        client.close();
-        
-        System.out.println("Basic test completed.\n");
-    }
-    
-    private static void runInteractiveTest() throws IOException {
-        System.out.println("Starting interactive SP client test...");
+    /**
+     * Executa o teste interativo com menu
+     */
+    private static void runInteractiveTest(String host, int port, Scanner scanner) throws IOException {
+        System.out.println("\nIniciando teste interativo (servidor: " + host + ":" + port + ")");
         System.out.println("--------------------------------------");
         
-        Scanner scanner = new Scanner(System.in);
-        TestSPClient client = new TestSPClient("localhost", 8080);
+        TestSPClient client = new TestSPClient(host, port);
         
         boolean running = true;
         while (running) {
-            System.out.println("\nChoose an option:");
-            System.out.println("1. List all topics");
-            System.out.println("2. Get servers for a topic");
-            System.out.println("3. Register a new topic");
-            System.out.println("4. Exit");
+            System.out.println("\nEscolha uma opção:");
+            System.out.println("1. Listar todos os tópicos");
+            System.out.println("2. Obter servidores para um tópico");
+            System.out.println("3. Registrar um novo tópico");
+            System.out.println("4. Executar testes automatizados");
+            System.out.println("5. Sair");
             System.out.print("> ");
             
             String option = scanner.nextLine();
@@ -71,52 +82,138 @@ public class TestSPClientMain {
                 switch (option) {
                     case "1":
                         List<String> topics = client.getTopics();
-                        System.out.println("Available topics: " + topics);
+                        System.out.println("Tópicos disponíveis: " + topics);
                         break;
                         
                     case "2":
-                        System.out.print("Enter topic name: ");
+                        System.out.print("Digite o nome do tópico: ");
                         String topic = scanner.nextLine();
                         List<TestSPClient.ServerAddress> servers = client.getServersForTopic(topic);
-                        System.out.println("Servers for topic '" + topic + "': " + servers);
+                        System.out.println("Servidores para tópico '" + topic + "': " + servers);
                         break;
                         
                     case "3":
-                        System.out.print("Enter new topic name: ");
+                        System.out.print("Digite o nome do novo tópico: ");
                         String newTopic = scanner.nextLine();
                         
-                        System.out.print("Enter number of servers: ");
-                        int numServers = Integer.parseInt(scanner.nextLine());
+                        System.out.print("Digite os servidores no formato 'ip1:porta1,ip2:porta2,...': ");
+                        String serversStr = scanner.nextLine();
                         
-                        List<TestSPClient.ServerAddress> newServers = new ArrayList<>();
-                        for (int i = 0; i < numServers; i++) {
-                            System.out.print("Enter server " + (i+1) + " IP: ");
-                            String ip = scanner.nextLine();
-                            
-                            System.out.print("Enter server " + (i+1) + " port: ");
-                            int port = Integer.parseInt(scanner.nextLine());
-                            
-                            newServers.add(new TestSPClient.ServerAddress(ip, port));
+                        boolean success = client.registerTopic(newTopic, serversStr);
+                        if (success) {
+                            System.out.println("Tópico registrado com sucesso!");
+                        } else {
+                            System.out.println("Falha ao registrar tópico.");
                         }
-                        
-                        client.registerTopic(newTopic, newServers);
-                        System.out.println("Topic registered!");
                         break;
                         
                     case "4":
+                        client.runAutomatedTests();
+                        break;
+                        
+                    case "5":
                         running = false;
                         break;
                         
                     default:
-                        System.out.println("Invalid option. Please try again.");
+                        System.out.println("Opção inválida. Tente novamente.");
                 }
             } catch (Exception e) {
-                System.err.println("Error: " + e.getMessage());
+                System.err.println("Erro: " + e.getMessage());
+                e.printStackTrace();
             }
         }
         
         client.close();
-        scanner.close();
-        System.out.println("Interactive test completed.");
+        System.out.println("Teste interativo concluído.");
+    }
+    
+    /**
+     * Executa testes automatizados
+     */
+    private static void runAutomatedTests(String host, int port) throws IOException {
+        System.out.println("\nIniciando testes automatizados (servidor: " + host + ":" + port + ")");
+        TestSPClient client = new TestSPClient(host, port);
+        client.runAutomatedTests();
+        client.close();
+    }
+    
+    /**
+     * Executa teste de estresse
+     */
+    private static void runStressTest(String host, int port, Scanner scanner) throws IOException {
+        System.out.println("\nIniciando teste de estresse (servidor: " + host + ":" + port + ")");
+        
+        System.out.print("Número de tópicos a registrar: ");
+        int numTopics = Integer.parseInt(scanner.nextLine());
+        
+        System.out.print("Número de servidores por tópico: ");
+        int numServers = Integer.parseInt(scanner.nextLine());
+        
+        TestSPClient client = new TestSPClient(host, port, false);
+        
+        System.out.println("Registrando " + numTopics + " tópicos com " + numServers + " servidores cada...");
+        long startTime = System.currentTimeMillis();
+        
+        for (int i = 0; i < numTopics; i++) {
+            String topic = "topic_" + i;
+            
+            List<TestSPClient.ServerAddress> servers = new ArrayList<>();
+            for (int j = 0; j < numServers; j++) {
+                servers.add(new TestSPClient.ServerAddress("192.168.1." + j, 5000 + j));
+            }
+            
+            client.registerTopic(topic, servers);
+            
+            if (i % 10 == 0) {
+                System.out.print(".");
+                System.out.flush();
+            }
+        }
+        
+        long endTime = System.currentTimeMillis();
+        System.out.println("\nTempo total: " + (endTime - startTime) + "ms");
+        
+        // Verifica quantos tópicos foram registrados
+        List<String> topics = client.getTopics();
+        System.out.println("Total de tópicos registrados: " + topics.size());
+        
+        client.close();
+    }
+    
+    /**
+     * Executa modo shell - similar ao netcat mas com historico e ajuda
+     */
+    private static void runShellMode(String host, int port, Scanner scanner) throws IOException {
+        System.out.println("\nModo shell iniciado (servidor: " + host + ":" + port + ")");
+        System.out.println("Digite comandos diretamente ou 'help' para ajuda, 'exit' para sair");
+        
+        TestSPClient client = new TestSPClient(host, port);
+        
+        boolean running = true;
+        while (running) {
+            System.out.print("nc> ");
+            String command = scanner.nextLine();
+            
+            if ("exit".equalsIgnoreCase(command) || "quit".equalsIgnoreCase(command)) {
+                running = false;
+            } else if ("help".equalsIgnoreCase(command)) {
+                System.out.println("Comandos disponíveis:");
+                System.out.println("  GET_TOPICS - Lista todos os tópicos");
+                System.out.println("  GET_SCS:<topic> - Lista servidores para um tópico");
+                System.out.println("  REGISTER_TOPIC:<topic>:<ip1>:<port1>,<ip2>:<port2>,... - Registra um tópico");
+                System.out.println("  exit/quit - Sai do modo shell");
+            } else {
+                try {
+                    String response = client.sendCommand(command);
+                    System.out.println(response);
+                } catch (Exception e) {
+                    System.err.println("Erro: " + e.getMessage());
+                }
+            }
+        }
+        
+        client.close();
+        System.out.println("Modo shell encerrado.");
     }
 }
