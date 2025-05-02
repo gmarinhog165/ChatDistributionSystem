@@ -5,7 +5,8 @@
     forward_get_scs/2,
     forward_register_topic/3,
     replicate_topic/3,
-    broadcast_ring_update/1
+    broadcast_ring_update/1,
+    get_remote_topics/1
 ]).
 
 % Start the inter-node communication server
@@ -50,6 +51,21 @@ replicate_topic({Ip, Port}, Topic, SCs) ->
         _:_ -> {error, connection_failed}
     end.
 
+% Get topics from a remote node
+get_remote_topics({Ip, Port}) ->
+    try
+        {ok, Socket} = gen_tcp:connect(Ip, Port + 1, [binary, {packet, 4}, {active, false}]),
+        Request = term_to_binary({get_topics}),
+        ok = gen_tcp:send(Socket, Request),
+        {ok, Response} = gen_tcp:recv(Socket, 0),
+        gen_tcp:close(Socket),
+        {ok, binary_to_term(Response)}
+    catch
+        E:R ->
+            io:format("Error retrieving topics from remote node (~p:~p): ~p:~p~n", [Ip, Port, E, R]),
+            {error, connection_failed}
+    end.
+
 % Broadcast ring update to all nodes in the ring
 broadcast_ring_update(Ring) ->
     lists:foreach(
@@ -82,6 +98,12 @@ handle_node_request(Socket) ->
                 {get_scs, Topic} ->
                     SCs = sp_server:get_scs(Topic),
                     Response = term_to_binary(SCs),
+                    gen_tcp:send(Socket, Response);
+                    
+                {get_topics} ->
+                    % Return only local and replicated topics, not a recursive call
+                    Topics = sp_server:get_local_topics(),
+                    Response = term_to_binary(Topics),
                     gen_tcp:send(Socket, Response);
                     
                 {register_topic, Topic, SCs} ->

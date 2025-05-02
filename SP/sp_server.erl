@@ -6,7 +6,8 @@
 -export([
     start_link/2, 
     start_link/3, 
-    get_topics/0, 
+    get_topics/0,
+    get_local_topics/0,
     get_scs/1, 
     register_topic/2,
     join_network/2
@@ -39,8 +40,44 @@ start_link(NodeId, Port) ->
 start_link(NodeId, ContactNode, Port) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [NodeId, ContactNode, Port], []).
 
+% Get all topics from all nodes in the network
 get_topics() ->
-    gen_server:call(?MODULE, get_topics).
+    % First get local topics
+    LocalTopics = get_local_topics(),
+    
+    % Then get the ring to know all nodes
+    Ring = sp_dht:get_ring(),
+    
+    % Get our node info to avoid querying ourselves
+    {MyNodeId, _} = sp_dht:get_node_info(),
+    
+    % Get topics from all other nodes
+    AllTopics = lists:foldl(
+        fun({_, NodeId, NodeAddr}, Acc) ->
+            % Skip our own node
+            case NodeId of
+                MyNodeId -> 
+                    Acc;
+                _ ->
+                    case sp_node_comm:get_remote_topics(NodeAddr) of
+                        {ok, RemoteTopics} ->
+                            Acc ++ RemoteTopics;
+                        {error, _} ->
+                            % If we can't connect to a node, just continue
+                            Acc
+                    end
+            end
+        end,
+        LocalTopics,
+        Ring
+    ),
+    
+    % Return unique topics
+    lists:usort(AllTopics).
+
+% Get only the topics managed by this node
+get_local_topics() ->
+    gen_server:call(?MODULE, get_local_topics).
 
 get_scs(Topic) ->
     gen_server:call(?MODULE, {get_scs, Topic}).
@@ -86,7 +123,7 @@ init([NodeId, ContactNode, Port]) ->
     
     {ok, #state{node_id = NodeId, replication_factor = ReplicationFactor}}.
 
-handle_call(get_topics, _From, State) ->
+handle_call(get_local_topics, _From, State) ->
     % Combine local and replicated topics
     AllTopics = maps:keys(State#state.local_topics) ++ maps:keys(State#state.replicated_topics),
     UniqueTopics = lists:usort(AllTopics),
