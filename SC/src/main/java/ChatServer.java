@@ -2,43 +2,60 @@ import org.zeromq.SocketType;
 import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.List;
+
 public class ChatServer {
-    private static ZMQ.Socket pullSocket;  // Socket para receber mensagens do cliente
-    private static ZMQ.Socket pubSocket1;  // Socket para enviar mensagens para o cliente
-    private static ZMQ.Socket puBSocket2;  // Socket para enviar mensagens para os SCs
-    private static ZMQ.Socket subSocket;   // Socket para receber mensagens dos SCs
+    private Map<String, List<Integer>> topics;
+    private ZContext context;
+    private ZMQ.Socket pullSocket;  // Socket para receber mensagens do cliente
+    private ZMQ.Socket clPubSocket;  // Socket para enviar mensagens para o cliente
+    private ZMQ.Socket scPuBSocket;  // Socket para enviar mensagens para os SCs
+    private ZMQ.Socket subSocket;   // Socket para receber mensagens dos SCs
 
-    public static void main(String[] args) {
-        int port = Integer.parseInt(args[0]);
-        System.out.println("Chat server listening on port: " + port);
+    public ChatServer(int port) {
+        this.topics = new HashMap<>();
+        this.context = new ZContext();
 
-        try (ZContext context = new ZContext()) {
-            pullSocket = context.createSocket(SocketType.PULL);
-            pullSocket.bind("tcp://*:" + port);
+        this.pullSocket = context.createSocket(SocketType.PULL);
+        pullSocket.bind("tcp://*:" + port);
 
-            pubSocket1 = context.createSocket(SocketType.PUB);
-            pubSocket1.bind("tcp://*:" + (port + 1));
+        this.clPubSocket = context.createSocket(SocketType.PUB);
+        clPubSocket.bind("tcp://*:" + (port + 1));
 
-            puBSocket2 = context.createSocket(SocketType.PUB);
-            puBSocket2.bind("tcp://*:" + (port + 2));
+        this.scPuBSocket = context.createSocket(SocketType.PUB);
+        this.subSocket = context.createSocket(SocketType.SUB);
 
-            subSocket = context.createSocket(SocketType.SUB);
+        this.scPuBSocket = context.createSocket(SocketType.PUB);
+        scPuBSocket.bind("tcp://*:" + (port + 2));
 
-            // Thread para receber mensagens do cliente
-            Thread receiverThread = new Thread(() -> {
-                while (!Thread.currentThread().isInterrupted()) {
-                    String message = pullSocket.recvStr();
-                    puBSocket2.send(message);
-                }
-            });
-            receiverThread.setDaemon(true);
-            receiverThread.start();
+        this.subSocket = context.createSocket(SocketType.SUB);
+    }
 
-            // Thread para receber mensagens dos SCs
+    public void start() {
+        // Thread para receber mensagens dos clientes
+        new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                String message = pullSocket.recvStr();
+                scPuBSocket.send(message);
+            }
+        }).start();
+
+        // Thread para receber mensagens dos SCs
+        new Thread(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 String message = subSocket.recvStr();
-                pubSocket1.send(message);
+                clPubSocket.send(message);
             }
+        }).start();
+    }
+
+    public void joinTopic(String topic, List<Integer> servers) {
+        this.topics.put(topic, servers);
+        for (int server : servers) {
+            this.subSocket.connect("tcp://*:" + server);
         }
+        this.subSocket.subscribe(topic);
     }
 }
