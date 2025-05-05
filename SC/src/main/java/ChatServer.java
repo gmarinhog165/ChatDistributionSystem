@@ -9,10 +9,10 @@ import java.util.List;
 public class ChatServer {
     private Map<String, List<Integer>> topics;
     private ZContext context;
-    private ZMQ.Socket pullSocket;  // Socket para receber mensagens do cliente
+    private ZMQ.Socket pullSocket;   // Socket para receber mensagens do cliente
     private ZMQ.Socket clPubSocket;  // Socket para enviar mensagens para o cliente
     private ZMQ.Socket scPuBSocket;  // Socket para enviar mensagens para os SCs
-    private ZMQ.Socket subSocket;   // Socket para receber mensagens dos SCs
+    private ZMQ.Socket subSocket;    // Socket para receber mensagens dos SCs
 
     public ChatServer(int port) {
         this.topics = new HashMap<>();
@@ -23,9 +23,6 @@ public class ChatServer {
 
         this.clPubSocket = context.createSocket(SocketType.PUB);
         clPubSocket.bind("tcp://*:" + (port + 1));
-
-        this.scPuBSocket = context.createSocket(SocketType.PUB);
-        this.subSocket = context.createSocket(SocketType.SUB);
 
         this.scPuBSocket = context.createSocket(SocketType.PUB);
         scPuBSocket.bind("tcp://*:" + (port + 2));
