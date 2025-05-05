@@ -5,24 +5,22 @@ import org.zeromq.ZMQ;
 import java.util.Scanner;
 
 public class TestClient {
-    private static final String DEFAULT_ROOM = "MEI";
-
     public static void main(String[] args) {
+        int port = Integer.parseInt(args[0]);
+
         try (ZContext context = new ZContext()) {
-            int port = Integer.parseInt(args[0]);
+            ZMQ.Socket pushSocket = context.createSocket(SocketType.PUSH);
+            pushSocket.connect("tcp://*:" + port);
 
-            ZMQ.Socket pusher = context.createSocket(SocketType.PUSH);
-            pusher.connect("tcp://*:" + port);
+            ZMQ.Socket subSocket = context.createSocket(SocketType.SUB);
+            subSocket.connect("tcp://*:" + (port + 1));
 
-            ZMQ.Socket subscriber = context.createSocket(SocketType.SUB);
-            subscriber.connect("tcp://*:" + port + 1);
-
-            String currentRoom = DEFAULT_ROOM;
-            subscriber.subscribe(currentRoom);
+            String room = args[1];
+            subSocket.subscribe(room);
 
             Thread receiverThread = new Thread(() -> {
                 while (!Thread.currentThread().isInterrupted()) {
-                    String message = subscriber.recvStr();
+                    String message = subSocket.recvStr();
                     String[] parts = message.split(":", 2);
                     String topic = parts[0];
                     String content = parts[1];
@@ -35,7 +33,7 @@ public class TestClient {
             Scanner scanner = new Scanner(System.in);
             while (scanner.hasNextLine()) {
                 String input = scanner.nextLine();
-                pusher.send(currentRoom + ":" + input);
+                pushSocket.send(room + ":" + input);
             }
         }
     }
