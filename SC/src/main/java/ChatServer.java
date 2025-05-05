@@ -9,17 +9,18 @@ public class ChatServer {
     private static ZMQ.Socket subSocket;   // Socket para receber mensagens dos SCs
 
     public static void main(String[] args) {
-        System.out.println("Chat server listening on port 5555");
+        int port = Integer.parseInt(args[0]);
+        System.out.println("Chat server listening on port: " + port);
 
         try (ZContext context = new ZContext()) {
             pullSocket = context.createSocket(SocketType.PULL);
-            pullSocket.bind("tcp://*:" + 5555);
+            pullSocket.bind("tcp://*:" + port);
 
             pubSocket1 = context.createSocket(SocketType.PUB);
-            pubSocket1.bind("tcp://*:" + 5556);
+            pubSocket1.bind("tcp://*:" + (port + 1));
 
             puBSocket2 = context.createSocket(SocketType.PUB);
-            puBSocket2.bind("tcp://*:" + 5557);
+            puBSocket2.bind("tcp://*:" + (port + 2));
 
             subSocket = context.createSocket(SocketType.SUB);
 
@@ -36,10 +37,6 @@ public class ChatServer {
             // Thread para receber mensagens dos SCs
             while (!Thread.currentThread().isInterrupted()) {
                 String message = subSocket.recvStr();
-                String[] parts = message.split(":", 2);
-                String topic = parts[0];
-                String content = parts[1];
-                System.out.println("[" + topic + "] " + content);
                 pubSocket1.send(message);
             }
         }
