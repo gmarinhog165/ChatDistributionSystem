@@ -121,7 +121,8 @@ public class ChatServer {
     }
 
     private void deliver(String topic, Message msg) {
-        versionVectors.get(topic).put(msg.senderId, msg.versionVector.get(msg.senderId));
+        int clock = versionVectors.get(topic).get(msg.senderId);
+        versionVectors.get(topic).put(msg.senderId, (clock + 1));
         clPubSocket.send(msg.topic + ":" + msg.message);
     }
 
