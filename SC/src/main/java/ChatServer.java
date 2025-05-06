@@ -56,21 +56,22 @@ public class ChatServer {
                 String content = parts[1];
 
                 Map<Integer, Integer> vv = versionVectors.get(topic);
-                vv.put(port, vv.get(port) + 1);
-                Message msg = new Message(topic, content, new HashMap<>(vv), port);
+                vv.put((port + 2), vv.get((port + 2)) + 1);
 
-                scPuBSocket.send(message);
+                Message msg = new Message(topic, content, new HashMap<>(vv), (port + 2));
+                scPuBSocket.sendMore(topic);
+                scPuBSocket.send(msg.toBytes());
             }
         }).start();
 
         // Thread para receber mensagens dos SCs
         new Thread(() -> {
             while (!Thread.currentThread().isInterrupted()) {
-                String message = subSocket.recvStr();
+                String topic = subSocket.recvStr();
+                byte[] data = subSocket.recv();
 
-
-
-                clPubSocket.send(message);
+                Message msg = Message.fromBytes(data);
+                handleMessage(topic, msg);
             }
         }).start();
     }
@@ -82,6 +83,7 @@ public class ChatServer {
         for (Integer server : servers) {
             topicClock.put(server, 0);
         }
+        topicClock.put((port + 2), 0);
 
         this.versionVectors.put(topic, topicClock);
         this.buffer.put(topic, new ArrayList<>());
@@ -90,6 +92,17 @@ public class ChatServer {
             this.subSocket.connect("tcp://*:" + server);
         }
         this.subSocket.subscribe(topic);
+    }
+
+    private void handleMessage(String topic, Message msg) {
+        Map<Integer, Integer> localVV = versionVectors.get(topic);
+
+        if (canDeliver(msg, localVV)) {
+            deliver(topic, msg);
+            tryDeliverBuffered(topic);
+        } else {
+            buffer.get(topic).add(msg);
+        }
     }
 
     private boolean canDeliver(Message msg, Map<Integer, Integer> localVV) {
