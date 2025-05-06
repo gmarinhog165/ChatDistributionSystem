@@ -32,4 +32,13 @@ public class Message implements Serializable {
             throw new RuntimeException("Erro ao desserializar a mensagem", e);
         }
     }
+
+    public String toString() {
+        return "Message{" +
+                "topic='" + topic + '\'' +
+                ", message='" + message + '\'' +
+                ", versionVector=" + versionVector +
+                ", senderId=" + senderId +
+                '}';
+    }
 }

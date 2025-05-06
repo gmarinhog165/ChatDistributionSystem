@@ -57,6 +57,7 @@ public class ChatServer {
 
                 Map<Integer, Integer> vv = versionVectors.get(topic);
                 vv.put((port + 2), vv.get((port + 2)) + 1);
+                versionVectors.put(topic, vv);
 
                 Message msg = new Message(topic, content, new HashMap<>(vv), (port + 2));
                 scPuBSocket.sendMore(topic);
@@ -121,7 +122,7 @@ public class ChatServer {
 
     private void deliver(String topic, Message msg) {
         versionVectors.get(topic).put(msg.senderId, msg.versionVector.get(msg.senderId));
-        clPubSocket.send(msg.message);
+        clPubSocket.send(msg.topic + ":" + msg.message);
     }
 
     private void tryDeliverBuffered(String topic) {
