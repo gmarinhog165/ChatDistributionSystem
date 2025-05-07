@@ -51,16 +51,20 @@ public class CyclonPeer {
     }
 
     private void listenForConnections() {
-        try (ServerSocket serverSocket = new ServerSocket(port)) {
-            System.out.println("Listening on port " + port);
-            while (true) {
-                Socket socket = serverSocket.accept();
-                executor.submit(() -> handleIncoming(socket));
+        try {
+            InetAddress bindAddr = InetAddress.getByName(address);
+            try (ServerSocket serverSocket = new ServerSocket(port, 50, bindAddr)) {
+                System.out.println("Listening on " + address + ":" + port);
+                while (true) {
+                    Socket socket = serverSocket.accept();
+                    executor.submit(() -> handleIncoming(socket));
+                }
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
+
 
     private void handleIncoming(Socket socket) {
         try (ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());

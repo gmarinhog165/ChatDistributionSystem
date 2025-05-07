@@ -10,8 +10,13 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Loop to open 5 terminals and run the Java program in each one
+# Loopback IPs to use (within 127.0.0.0/8)
+LOOPBACK_BASE=127.0.0
+
+# Launch 5 instances on the same port (5000) but different loopback IPs
 for i in {1..5}
 do
-    gnome-terminal -- bash -c "java -cp target/classes sa.Main initial_peers.txt 127.0.0.1:$((5000 + i - 1)); exec bash"
+    IP="$LOOPBACK_BASE.$i"
+    echo "Launching instance $i on $IP:5000"
+    gnome-terminal -- bash -c "java -cp target/classes sa.Main initial_peers.txt $IP:5000; exec bash"
 done
