@@ -5,32 +5,31 @@ import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import sa.config.Config;
 
 public class CyclonLauncher {
     private String filename;
-    private String selfaddr;
+    private String selfIPaddr;
 
-    public CyclonLauncher(String filename, String selfaddr) {
+    public CyclonLauncher(String filename, String selfIPaddr) {
         this.filename = filename;
-        this.selfaddr = selfaddr;
+        this.selfIPaddr = selfIPaddr;
     }
 
-    public void launch() throws IOException {
+    public CyclonPeer launch() throws IOException {
 
         ScheduledExecutorService statusExecutor = Executors.newScheduledThreadPool(1);
-
+            CyclonPeer peer = new CyclonPeer(this.selfIPaddr, this.filename);
             // Start the peer in a separate thread to avoid blocking
             new Thread(() -> {
-                try {
-                    System.out.println("Starting peer at address " + this.selfaddr);
-                    CyclonPeer peer = new CyclonPeer(this.selfaddr, this.filename);
+                    System.out.println("Starting cyclon peer at address " + this.selfIPaddr + " and port " + Config.CYCLON_PORT);
                     peer.start();
 
                     // Schedule periodic status printing
                     statusExecutor.scheduleAtFixedRate(() -> {
                         Map<String, Integer> neighbors = peer.getNeighbours();
                         StringBuilder status = new StringBuilder();
-                        status.append("Peer ").append(this.selfaddr).append(" Neighbors: {");
+                        status.append("Peer ").append(this.selfIPaddr).append(" Neighbors: {");
 
                         boolean first = true;
                         for (Map.Entry<String, Integer> entry : neighbors.entrySet()) {
@@ -45,12 +44,10 @@ public class CyclonLauncher {
                         System.out.println(status.toString());
                     }, 2, 10, TimeUnit.SECONDS);
 
-                } catch (IOException e) {
-                    System.out.println("Error starting peer " + this.selfaddr + ": " + e.getMessage());
-                    e.printStackTrace();
-                }
+                
             }).start();
 
         System.out.println("Peer started. Press Ctrl+C to terminate.");
+        return peer;
     }
 }

@@ -13,10 +13,10 @@ fi
 # Loopback IPs to use (within 127.0.0.0/8)
 LOOPBACK_BASE=127.0.0
 
-# Launch 5 instances on the same port (5000) but different loopback IPs
-for i in {1..5}
+# Launch 5 instances on different loopback IPs
+for i in {1..10}
 do
     IP="$LOOPBACK_BASE.$i"
-    echo "Launching instance $i on $IP:5000"
-    gnome-terminal -- bash -c "java -cp target/classes sa.Main initial_peers.txt $IP:5000; exec bash"
+    echo "Launching instance $i on $IP"
+    gnome-terminal -- bash -c "java -cp target/classes sa.Main initial_peers_10.txt $IP; exec bash"
 done

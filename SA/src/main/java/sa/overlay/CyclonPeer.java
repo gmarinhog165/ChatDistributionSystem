@@ -5,10 +5,11 @@ import java.net.*;
 import java.util.*;
 import java.util.concurrent.*;
 
+import sa.config.Config;
+
 public class CyclonPeer {
     private final String address;
-    private final int port;
-    private final int viewSize = 3;
+    private final int viewSize = Config.VIEWSIZE;
     private final Map<String, Integer> neighbours = new ConcurrentHashMap<>(); // <peer, age>
     /*
     1 thread-listenForConnections() — runs a server socket in a background thread.
@@ -16,23 +17,18 @@ public class CyclonPeer {
     3 thread-cyclonShuffle() — runs every 5 seconds to exchange neighbors with peers.
      */
     private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(3);
-    private final Random random = new Random();
 
     public CyclonPeer(String address, String peerFile) throws IOException {
-        String[] parts = address.split(":");
-        this.address = parts[0];
-        this.port = Integer.parseInt(parts[1]);
-
-        String myFullAddress = address;
-        List<String> initialPeers = readInitialPeers(peerFile, myFullAddress);
+        this.address = address;
+        List<String> initialPeers = readInitialPeers(peerFile, this.address);
 
         for (String peer : initialPeers) {
-            if (!peer.equals(myFullAddress)) {
+            if (!peer.equals(this.address)) {
                 neighbours.put(peer, 0); // Initialize with age 0
             }
         }
 
-        System.out.println("Initialized peer " + myFullAddress + " with neighbors: " + neighbours.keySet());
+        System.out.println("Initialized peer " + this.address + " with neighbors: " + neighbours.keySet());
     }
 
     public void start() {
@@ -53,8 +49,7 @@ public class CyclonPeer {
     private void listenForConnections() {
         try {
             InetAddress bindAddr = InetAddress.getByName(address);
-            try (ServerSocket serverSocket = new ServerSocket(port, 50, bindAddr)) {
-                System.out.println("Listening on " + address + ":" + port);
+            try (ServerSocket serverSocket = new ServerSocket(Config.CYCLON_PORT, 50, bindAddr)) {
                 while (true) {
                     Socket socket = serverSocket.accept();
                     executor.submit(() -> handleIncoming(socket));
@@ -106,15 +101,12 @@ public class CyclonPeer {
         Map<String, Integer> toSend = selectRandomSubset(shuffleLength);
 
         // 3. Add ourselves with age 0
-        String selfAddress = address + ":" + port;
+        String selfAddress = address;
         toSend.put(selfAddress, 0);
 
         try {
-            String[] parts = oldestPeer.split(":");
-            String host = parts[0];
-            int targetPort = Integer.parseInt(parts[1]);
 
-            try (Socket socket = new Socket(host, targetPort);
+            try (Socket socket = new Socket(oldestPeer, Config.CYCLON_PORT);
                  ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
                  ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
 
@@ -168,8 +160,8 @@ public class CyclonPeer {
 
     private void mergePeerList(Map<String, Integer> newPeers) {
         // Remove self from received peers
-        String selfAddress = address + ":" + port;
-        newPeers.remove(selfAddress);
+        
+        newPeers.remove(this.address);
 
         // Merge with local view, keeping view size limited
         while (!newPeers.isEmpty() && neighbours.size() < viewSize) {
@@ -201,29 +193,26 @@ public class CyclonPeer {
 
     private List<String> readInitialPeers(String filePath, String myAddress) throws IOException {
         List<String> peers = new ArrayList<>();
-
+    
         try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
                 if (line.isEmpty()) continue;
-
-                // Split only on the first colon to separate address from neighbors
-                int firstColonIndex = line.indexOf(":");
-                if (firstColonIndex == -1) continue;
-
-                // Now look for the second colon (after port)
-                int secondColonIndex = line.indexOf(":", firstColonIndex + 1);
-                if (secondColonIndex == -1) continue;
-
-                String address = line.substring(0, secondColonIndex).trim();
-                String neighborPart = line.substring(secondColonIndex + 1).trim();
-
-                if (address.equals(myAddress)) {
+    
+                // Espera um formato tipo "127.0.0.1: 127.0.0.2, 127.0.0.3"
+                String[] parts = line.split(":", 2);
+                if (parts.length != 2) continue;
+    
+                String nodeAddress = parts[0].trim();
+                String neighborPart = parts[1].trim();
+    
+                if (nodeAddress.equals(myAddress)) {
                     String[] neighbors = neighborPart.split(",");
                     for (String neighbor : neighbors) {
                         String trimmed = neighbor.trim();
                         if (!trimmed.isEmpty() && !trimmed.equals(myAddress)) {
+                            // Adiciona a porta fixa (ex: Config.CYCLON_PORT)
                             peers.add(trimmed);
                         }
                     }
@@ -233,5 +222,6 @@ public class CyclonPeer {
         }
         return peers;
     }
+    
 
 }
