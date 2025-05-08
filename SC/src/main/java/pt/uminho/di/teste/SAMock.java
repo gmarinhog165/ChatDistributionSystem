@@ -5,33 +5,77 @@ import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
 
 public class SAMock {
+    private static final String CMD_TOPIC_CONFIG = "TOPIC_CONFIG";
+    private static final String CMD_STATUS_REQUEST = "STATUS_REQUEST";
+
     public static void main(String[] args) throws Exception {
         String topic = "test_topic";
         String servers = "localhost:50052,localhost:50062";
+        int scPort = 50062; // The SC port we're targeting
 
         try (ZContext context = new ZContext()) {
-            // Create publisher sockets for each SC
-            ZMQ.Socket pubSocket1 = context.createSocket(SocketType.PUB);
-            ZMQ.Socket pubSocket2 = context.createSocket(SocketType.PUB);
+            // Create publisher socket for topic configuration
+            ZMQ.Socket pubSocket = context.createSocket(SocketType.PUB);
+            pubSocket.bind("tcp://*:" + (scPort - 1));
 
-            // Bind to ports that SCs are listening on (SC port - 1)
-            pubSocket1.bind("tcp://*:50051");
-            pubSocket2.bind("tcp://*:50061");
+            // Create request socket for status queries
+            ZMQ.Socket reqSocket = context.createSocket(SocketType.REQ);
+            reqSocket.connect("tcp://localhost:" + (scPort + 200));
 
-            System.out.println("SA Mock started, press Enter to send topic configuration...");
-            System.in.read(); // Wait for user input
+            System.out.println("SA Mock started");
 
-            // Send topic configuration to both SCs
-            System.out.println("Sending topic configuration to SC1...");
-            pubSocket1.sendMore(topic);
-            pubSocket1.send(servers);
+            // Menu loop
+            while (true) {
+                System.out.println("\nOptions:");
+                System.out.println("1. Send topic configuration");
+                System.out.println("2. Request server status");
+                System.out.println("3. Exit");
+                System.out.print("Select option: ");
 
-            System.out.println("Sending topic configuration to SC2...");
-            pubSocket2.sendMore(topic);
-            pubSocket2.send(servers);
+                int option = System.in.read();
+                while (System.in.available() > 0) System.in.read(); // Clear input buffer
 
-            System.out.println("Topic configuration sent. Press Enter to exit.");
-            System.in.read(); // Wait for user input before exiting
+                if (option == '1') {
+                    // Send topic configuration
+                    System.out.println("Sending topic configuration...");
+                    pubSocket.sendMore(CMD_TOPIC_CONFIG);
+                    pubSocket.sendMore(topic);
+                    pubSocket.send(servers);
+                    System.out.println("Topic configuration sent");
+
+                } else if (option == '2') {
+                    // Request server status
+                    System.out.println("Requesting server status...");
+                    reqSocket.send(CMD_STATUS_REQUEST);
+
+                    // Wait for response with timeout
+                    String response = reqSocket.recvStr(ZMQ.DONTWAIT);
+                    int attempts = 0;
+
+                    while (response == null && attempts < 10) {
+                        Thread.sleep(100);
+                        response = reqSocket.recvStr(ZMQ.DONTWAIT);
+                        attempts++;
+                    }
+
+                    if (response != null) {
+                        String[] parts = response.split(":");
+                        if (parts.length == 2) {
+                            System.out.println("Server status received:");
+                            System.out.println("- Active clients: " + parts[0]);
+                            System.out.println("- Active topics: " + parts[1]);
+                        } else {
+                            System.out.println("Received unexpected response: " + response);
+                        }
+                    } else {
+                        System.out.println("No response received from server");
+                    }
+
+                } else if (option == '3') {
+                    System.out.println("Exiting...");
+                    break;
+                }
+            }
         }
     }
 }
