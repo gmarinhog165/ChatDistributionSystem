@@ -72,6 +72,9 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
             this.chatMessages.computeIfAbsent(topic, k -> Collections.synchronizedList(new ArrayList<>()));
             this.topicPublishers.computeIfAbsent(topic, k -> PublishSubject.create());
 
+            // Increment active client count in SA connection manager
+            saConnectionManager.incrementClientCount();
+
             //TODO chamar método da classe responsável pelo CRDT
 
             logger.info("User " + username + " joined topic: " + topic);
@@ -91,6 +94,9 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
 
             if (this.topicUsers.containsKey(topic)) {
                 topicUsers.get(topic).remove(username);
+
+                // Decrement active client count in SA connection manager
+                saConnectionManager.decrementClientCount();
 
                 //TODO chamar método da classe responsável pelo CRDT
 
