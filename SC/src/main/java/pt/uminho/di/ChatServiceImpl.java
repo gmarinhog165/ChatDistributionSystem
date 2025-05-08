@@ -8,17 +8,50 @@ import pt.uminho.di.proto.*;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
-    private Map<String, Set<String>> topicUsers;
-    private Map<String, List<ChatMessage>> chatMessages;
-    private Map<String, PublishSubject<ChatMessage>> topicPublishers;
+    private static final Logger logger = Logger.getLogger(ChatServiceImpl.class.getName());
 
-    public ChatServiceImpl() {
+    // Chat state data structures
+    private final Map<String, Set<String>> topicUsers;
+    private final Map<String, List<ChatMessage>> chatMessages;
+    private final Map<String, PublishSubject<ChatMessage>> topicPublishers;
+
+    // Server-to-server communication
+    private final Map<String, Set<String>> topicServers;
+    private final ChatDistributionManager distributionManager;
+    private final SAConnectionManager saConnectionManager;
+
+    // Server identification
+    private final String serverId;
+    private final int port;
+
+    public ChatServiceImpl(String serverId, int port) {
+        this.serverId = serverId;
+        this.port = port;
+
         this.topicUsers = new ConcurrentHashMap<>();
         this.chatMessages = new ConcurrentHashMap<>();
         this.topicPublishers = new ConcurrentHashMap<>();
+        this.topicServers = new ConcurrentHashMap<>();
+
+        this.distributionManager = new ChatDistributionManager(
+                serverId,
+                port,
+                chatMessages,
+                topicPublishers,
+                topicServers
+        );
+
+        this.saConnectionManager = new SAConnectionManager(
+                serverId,
+                port,
+                topicServers
+        );
+
+        logger.info("ChatServiceImpl initialized with server ID: " + serverId + " on port: " + port);
     }
 
     @Override
@@ -27,12 +60,21 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
             String topic = req.getTopic();
             String username = req.getUsername();
 
-            // O primeiro a entrar inicializa a cena
+            if(!chatMessages.containsKey(topic)) {
+                return JoinLeaveResponse.newBuilder()
+                        .setSuccess(false)
+                        .setMessage("Topic " + topic + " not found")
+                        .build();
+            }
+
+            // Initialize topic structures if this is the first join
             this.topicUsers.computeIfAbsent(topic, k -> ConcurrentHashMap.newKeySet()).add(username);
             this.chatMessages.computeIfAbsent(topic, k -> Collections.synchronizedList(new ArrayList<>()));
             this.topicPublishers.computeIfAbsent(topic, k -> PublishSubject.create());
 
             //TODO chamar método da classe responsável pelo CRDT
+
+            logger.info("User " + username + " joined topic: " + topic);
 
             return JoinLeaveResponse.newBuilder()
                     .setSuccess(true)
@@ -51,6 +93,8 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
                 topicUsers.get(topic).remove(username);
 
                 //TODO chamar método da classe responsável pelo CRDT
+
+                logger.info("User " + username + " left topic: " + topic);
 
                 return JoinLeaveResponse.newBuilder()
                         .setSuccess(true)
@@ -87,12 +131,15 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
 
             chatMessages.get(topic).add(message);
 
-            //TODO: propagar mensagens para os SCs com Vector Clocks
+            // Propagate message to other servers using distribution manager
+            distributionManager.propagateMessage(topic, message);
 
-            // Notifica todos os observadores inscritos neste tópico através do PublishSubject
+            // Notify local subscribers through the PublishSubject
             if (topicPublishers.containsKey(topic)) {
                 topicPublishers.get(topic).onNext(message);
             }
+
+            logger.info("Message sent by " + username + " to topic: " + topic);
 
             return SendMessageResponse.newBuilder()
                     .setSuccess(true)
@@ -127,8 +174,6 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
     public Single<GetLogResponse> getChatLog(Single<GetLogRequest> request) {
         return request.map(req -> {
             String topic = req.getTopic();
-            // Obtenha o nome de usuário se disponível no protobuf
-            String username = req.getHasUsername() ? req.getUsername() : null;
 
             if(!this.topicUsers.containsKey(topic)) {
                 return GetLogResponse.newBuilder()
@@ -148,7 +193,7 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
                     }
                 }
 
-                // Se filtrar por usuário
+                // Filter by username if requested
                 if (req.getHasUsername()) {
                     String filterUsername = req.getUsername();
                     messages = messages.stream()
@@ -163,7 +208,6 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
         });
     }
 
-    // New method for reactive subscription
     @Override
     public Flowable<ChatMessage> subscribeToTopic(Single<SubscribeRequest> request) {
         return request.flatMapPublisher(req -> {
@@ -174,21 +218,35 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
                 return Flowable.error(new RuntimeException("User not subscribed to topic or topic doesn't exist"));
             }
 
-            // Create a Flowable from historical messages
             Flowable<ChatMessage> historicalMessages = Flowable.fromIterable(
                     chatMessages.getOrDefault(topic, Collections.emptyList())
             );
 
-            // Get the publisher for this topic or create a new one
             PublishSubject<ChatMessage> publisher = topicPublishers.computeIfAbsent(
                     topic, k -> PublishSubject.create()
             );
 
-            // Create a Flowable from the publisher (for new messages)
             Flowable<ChatMessage> newMessages = publisher.toFlowable(BackpressureStrategy.BUFFER);
 
-            // Concatenate historical messages followed by new ones
+            logger.info("User " + username + " subscribed to topic: " + topic);
+
             return historicalMessages.concatWith(newMessages);
         });
+    }
+
+    public void shutdown() {
+        try {
+            if (distributionManager != null) {
+                distributionManager.shutdown();
+            }
+
+            if (saConnectionManager != null) {
+                saConnectionManager.shutdown();
+            }
+
+            logger.info("ChatServiceImpl shut down successfully");
+        } catch (Exception e) {
+            logger.warning("Error during ChatServiceImpl shutdown: " + e.getMessage());
+        }
     }
 }
