@@ -10,8 +10,8 @@ public class SAMock {
 
     public static void main(String[] args) throws Exception {
         String topic = "test_topic";
-        String servers = "localhost:30000,localhost:20000";
-        int scPort = 6997; // The SC port we're targeting
+        String servers = "localhost:50052,localhost:50062";
+        int scPort = 50062; // The SC port we're targeting
 
         try (ZContext context = new ZContext()) {
             // Create publisher socket for topic configuration
@@ -23,14 +23,59 @@ public class SAMock {
             reqSocket.connect("tcp://localhost:" + (scPort + 200));
 
             System.out.println("SA Mock started");
-            Thread.sleep(10);
-                    // Send topic configuration
-            System.out.println("Sending topic configuration...");
-            pubSocket.sendMore(CMD_TOPIC_CONFIG);
-            pubSocket.sendMore(topic);
-            pubSocket.send(servers);
-            System.out.println("Topic configuration sent");
 
+            // Menu loop
+            while (true) {
+                System.out.println("\nOptions:");
+                System.out.println("1. Send topic configuration");
+                System.out.println("2. Request server status");
+                System.out.println("3. Exit");
+                System.out.print("Select option: ");
+
+                int option = System.in.read();
+                while (System.in.available() > 0) System.in.read(); // Clear input buffer
+
+                if (option == '1') {
+                    // Send topic configuration
+                    System.out.println("Sending topic configuration...");
+                    pubSocket.sendMore(CMD_TOPIC_CONFIG);
+                    pubSocket.sendMore(topic);
+                    pubSocket.send(servers);
+                    System.out.println("Topic configuration sent");
+
+                } else if (option == '2') {
+                    // Request server status
+                    System.out.println("Requesting server status...");
+                    reqSocket.send(CMD_STATUS_REQUEST);
+
+                    // Wait for response with timeout
+                    String response = reqSocket.recvStr(ZMQ.DONTWAIT);
+                    int attempts = 0;
+
+                    while (response == null && attempts < 10) {
+                        Thread.sleep(100);
+                        response = reqSocket.recvStr(ZMQ.DONTWAIT);
+                        attempts++;
+                    }
+
+                    if (response != null) {
+                        String[] parts = response.split(":");
+                        if (parts.length == 2) {
+                            System.out.println("Server status received:");
+                            System.out.println("- Active clients: " + parts[0]);
+                            System.out.println("- Active topics: " + parts[1]);
+                        } else {
+                            System.out.println("Received unexpected response: " + response);
+                        }
+                    } else {
+                        System.out.println("No response received from server");
+                    }
+
+                } else if (option == '3') {
+                    System.out.println("Exiting...");
+                    break;
+                }
+            }
         }
     }
 }

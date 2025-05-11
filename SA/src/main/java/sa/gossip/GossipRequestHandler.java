@@ -9,6 +9,9 @@ import java.net.*;
 import java.util.*;
 import java.util.concurrent.*;
 
+import org.zeromq.ZContext;
+import org.zeromq.ZMQ;
+
 public class GossipRequestHandler implements Runnable {
     private final Integer myPort;
     private final CyclonPeer cyclonPeer;
@@ -42,8 +45,10 @@ public class GossipRequestHandler implements Runnable {
             int senderPort = socket.getPort();
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             BufferedWriter out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
-    
+            System.out.println("Handling incoming message from peer: " + socket.getPort());
+
             String line = in.readLine();
+            System.out.println("Line: " + line);
             if (line == null || !line.startsWith("HOST_TOPIC")) {
                 out.write("ERROR: Invalid request format\n");
                 out.write("END\n");
@@ -77,16 +82,41 @@ public class GossipRequestHandler implements Runnable {
     
             System.out.println("Received HOST_TOPIC request: " + line + " (ID: " + requestId + ") from " + senderPort);
     
-            // Generate my own SC info (simulated values) depois aqui vai buscar ao sc
-            int numClients = ThreadLocalRandom.current().nextInt(0, 6); // 0 to 5 inclusive
-            int numTopics = ThreadLocalRandom.current().nextInt(0, 6);  // 0 to 5 inclusive
+
+
+            // Query SC (SAConnectionManager) on its REP socket
+            int numClients = -1;
+            int numTopics = -1;
+                    
+            // Create the context
+            ZMQ.Context context = ZMQ.context(1);
+
+            // Create the socket
+            ZMQ.Socket requester = context.socket(ZMQ.REQ);
+                
+                
+            // Connect to the SAConnectionManager's REP port (assumes +200 from SC port)
+            requester.connect("tcp://localhost:" + (myPort - 1 + 200));
+                
+            System.out.println("Sending STATUS_REQUEST to tcp://localhost:" + (myPort - 3 + 200));
+            requester.send("STATUS_REQUEST");
+            String response = requester.recvStr(2000);
+            System.out.println("Received status " + response);  // Confirm this prints
+
+            if (response != null && response.contains(":")) {
+                    String[] partes = response.split(":");
+                    numClients = Integer.parseInt(partes[0]);
+                    numTopics = Integer.parseInt(partes[1]);
+            } 
+            else{
+                System.err.println("Invalid or no response from SAConnectionManager");
+            }
             
-            // Create SCInfo for myself
-            //SCInfo myInfo = new SCInfo(selfIPAddr, Config.SC_PORT, numClients, numTopics);
+            requester.close();
             
             // Write my SC info in the response
             out.write("NUM_CLIENTS " + numClients + " NUM_TOPICOS " + numTopics + "\n");
-            
+            out.flush();
             // Create a list to collect SC infos from neighbors
             List<SCInfo> collectedInfo = new ArrayList<>();
             //com isto depois enviava info repetida

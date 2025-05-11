@@ -48,6 +48,7 @@ public class SAConnectionManager {
 
         // Socket for handling request-reply pattern
         this.replySocket = context.createSocket(SocketType.REP);
+        System.out.println("Status socket on port " + (port+200));
         this.replySocket.bind("tcp://*:" + (port + 200)); // Using port+200 for REP socket
 
         this.executor = Executors.newFixedThreadPool(2); // One thread for SUB, one for REP
