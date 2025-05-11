@@ -1,11 +1,11 @@
 package sa.overlay;
 
 public class PeerEntry {
-    String address;
+    Integer port;
     int age;
 
-    PeerEntry(String address, int age) {
-        this.address = address;
+    PeerEntry(Integer port, int age) {
+        this.port = port;
         this.age = age;
     }
 }

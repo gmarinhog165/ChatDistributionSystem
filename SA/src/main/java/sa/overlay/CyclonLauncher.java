@@ -9,30 +9,30 @@ import sa.config.Config;
 
 public class CyclonLauncher {
     private String filename;
-    private String selfIPaddr;
+    private Integer port;
 
-    public CyclonLauncher(String filename, String selfIPaddr) {
+    public CyclonLauncher(String filename, Integer port) {
         this.filename = filename;
-        this.selfIPaddr = selfIPaddr;
+        this.port = port;
     }
 
     public CyclonPeer launch() throws IOException {
 
         ScheduledExecutorService statusExecutor = Executors.newScheduledThreadPool(1);
-            CyclonPeer peer = new CyclonPeer(this.selfIPaddr, this.filename);
+            CyclonPeer peer = new CyclonPeer(this.port, this.filename);
             // Start the peer in a separate thread to avoid blocking
             new Thread(() -> {
-                    System.out.println("Starting cyclon peer at address " + this.selfIPaddr + " and port " + Config.CYCLON_PORT);
+                    System.out.println("Starting cyclon peer at port " + this.port);
                     peer.start();
 
                     // Schedule periodic status printing
                     statusExecutor.scheduleAtFixedRate(() -> {
-                        Map<String, Integer> neighbors = peer.getNeighbours();
+                        Map<Integer, Integer> neighbors = peer.getNeighbours();
                         StringBuilder status = new StringBuilder();
-                        status.append("Peer ").append(this.selfIPaddr).append(" Neighbors: {");
+                        status.append("Peer ").append(this.port).append(" Neighbors: {");
 
                         boolean first = true;
-                        for (Map.Entry<String, Integer> entry : neighbors.entrySet()) {
+                        for (Map.Entry<Integer, Integer> entry : neighbors.entrySet()) {
                             if (!first) {
                                 status.append(", ");
                             }

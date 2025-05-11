@@ -10,14 +10,14 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class GossipRequestHandler implements Runnable {
-    private final String selfIPAddr;
+    private final Integer myPort;
     private final CyclonPeer cyclonPeer;
     private final Aggregator aggregator;
     // Add a map to store SCInfo collected from the network
     private final ConcurrentHashMap<String, SCInfo> networkSCInfo = new ConcurrentHashMap<>();
 
-    public GossipRequestHandler(String selfIPAddr, CyclonPeer cyclonPeer, Aggregator aggregator) {
-        this.selfIPAddr = selfIPAddr;
+    public GossipRequestHandler(Integer myPort, CyclonPeer cyclonPeer, Aggregator aggregator) {
+        this.myPort = myPort;
         this.cyclonPeer = cyclonPeer;
         this.aggregator = aggregator;
     }
@@ -25,9 +25,8 @@ public class GossipRequestHandler implements Runnable {
     @Override
     public void run() {
         try {
-            InetAddress bindAddr = InetAddress.getByName(this.selfIPAddr);
-            try (ServerSocket serverSocket = new ServerSocket(Config.GOSSIP_PORT, 50, bindAddr)) {
-                System.out.println("SA Gossip Handler listening on port " + Config.GOSSIP_PORT);
+            try (ServerSocket serverSocket = new ServerSocket(myPort)) {
+                System.out.println("SA Gossip Handler listening on port " + myPort);
                 while (true) {
                     Socket socket = serverSocket.accept();
                     new Thread(() -> handleRequest(socket)).start();
@@ -40,7 +39,7 @@ public class GossipRequestHandler implements Runnable {
 
     private void handleRequest(Socket socket) {
         try {
-            String senderIP = socket.getInetAddress().getHostAddress();
+            int senderPort = socket.getPort();
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             BufferedWriter out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
     
@@ -76,7 +75,7 @@ public class GossipRequestHandler implements Runnable {
             
             String requestId = topic + ":" + username + ":" + uuid;
     
-            System.out.println("Received HOST_TOPIC request: " + line + " (ID: " + requestId + ") from " + senderIP);
+            System.out.println("Received HOST_TOPIC request: " + line + " (ID: " + requestId + ") from " + senderPort);
     
             // Generate my own SC info (simulated values) depois aqui vai buscar ao sc
             int numClients = ThreadLocalRandom.current().nextInt(0, 6); // 0 to 5 inclusive
@@ -100,14 +99,14 @@ public class GossipRequestHandler implements Runnable {
             
             if (isNewRequest && ttl > 0) {
                 System.out.println("New request, forwarding to neighbors with TTL=" + (ttl - 1) + " (ID: " + requestId + ")");
-                Map<String, Integer> neighbors = cyclonPeer.getNeighbours();
+                Map<Integer, Integer> neighbors = cyclonPeer.getNeighbours();
                 
                 // Create a collection for tracking forwarding attempts
                 List<Future<List<SCInfo>>> forwardingTasks = new ArrayList<>();
                 
-                for (String peer : neighbors.keySet()) {
+                for (Integer peer : neighbors.keySet()) {
                     // Skip sending back to the node that sent us this request
-                    if (peer.equals(senderIP)) {
+                    if (peer.equals(senderPort)) {
                         System.out.println("Skipping forwarding back to sender: " + peer);
                         continue;
                     }
@@ -115,7 +114,7 @@ public class GossipRequestHandler implements Runnable {
                     // Forward to each neighbor in parallel and collect results
                     forwardingTasks.add(CompletableFuture.supplyAsync(() -> {
                         List<SCInfo> peerInfo = new ArrayList<>();
-                        try (Socket peerSocket = new Socket(peer, Config.GOSSIP_PORT);
+                        try (Socket peerSocket = new Socket("localhost",peer-2);
                              BufferedWriter peerOut = new BufferedWriter(new OutputStreamWriter(peerSocket.getOutputStream()));
                              BufferedReader peerIn = new BufferedReader(new InputStreamReader(peerSocket.getInputStream()))) {
                             
@@ -144,7 +143,7 @@ public class GossipRequestHandler implements Runnable {
                                     }
                                     
                                     if (peerNumClients != Integer.MAX_VALUE && peerNumTopics != Integer.MAX_VALUE) {
-                                        SCInfo info = new SCInfo(peer, Config.SC_PORT, peerNumClients, peerNumTopics);
+                                        SCInfo info = new SCInfo(peer, peerNumClients, peerNumTopics);
                                         peerInfo.add(info);
                                     }
                                 }
@@ -155,13 +154,12 @@ public class GossipRequestHandler implements Runnable {
                                     
                                     // Parse the SC_INFO line to extract data
                                     String[] scInfoParts = peerLine.split(" ");
-                                    if (scInfoParts.length >= 5) {
-                                        String scIp = scInfoParts[1];
-                                        int scPort = Integer.parseInt(scInfoParts[2]);
-                                        int scClients = Integer.parseInt(scInfoParts[3]);
-                                        int scTopics = Integer.parseInt(scInfoParts[4]);
+                                    if (scInfoParts.length >= 4) {
+                                        int scPort = Integer.parseInt(scInfoParts[1]);
+                                        int scClients = Integer.parseInt(scInfoParts[2]);
+                                        int scTopics = Integer.parseInt(scInfoParts[3]);
                                         
-                                        SCInfo remoteInfo = new SCInfo(scIp, scPort, scClients, scTopics);
+                                        SCInfo remoteInfo = new SCInfo(scPort, scClients, scTopics);
                                         peerInfo.add(remoteInfo);
                                     }
                                 }
@@ -197,8 +195,8 @@ public class GossipRequestHandler implements Runnable {
             
             // Forward all collected SC infos back to the requester
             for (SCInfo info : collectedInfo) {
-                if (!info.getAddress().equals(selfIPAddr)) { // Don't repeat our own info
-                    out.write("SC_INFO " + info.getAddress() + " " + 
+                if (!(info.getPort()==this.myPort)) { // Don't repeat our own info
+                    out.write("SC_INFO " +  
                               info.getPort() + " " + 
                               info.getNumClients() + " " + 
                               info.getNumTopics() + "\n");

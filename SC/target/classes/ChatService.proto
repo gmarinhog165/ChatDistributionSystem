@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+package pt.uminho.di.proto;
+option java_multiple_files = true;
+option java_package = "pt.uminho.di.proto";
+
+// The chat service definition
+service ChatService {
+  // Join a topic
+  rpc JoinTopic(JoinLeaveRequest) returns (JoinLeaveResponse) {}
+
+  // Leave a topic
+  rpc LeaveTopic(JoinLeaveRequest) returns (JoinLeaveResponse) {}
+
+  // Send a message to a topic
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse) {}
+
+  // Get list of active users in a topic
+  rpc GetActiveUsers(GetUsersRequest) returns (GetUsersResponse) {}
+
+  // Get chat log for a topic
+  rpc GetChatLog(GetLogRequest) returns (GetLogResponse) {}
+
+  // Subscribe to receive messages from a topic in real time
+  rpc SubscribeToTopic(SubscribeRequest) returns (stream ChatMessage) {}
+}
+
+
+message JoinLeaveRequest {
+  string topic = 1;
+  string username = 2;
+}
+
+
+message JoinLeaveResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Request to send a message
+message SendMessageRequest {
+  string topic = 1;
+  string username = 2;
+  string content = 3;
+}
+
+message SendMessageResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Request to get active users
+message GetUsersRequest {
+  string topic = 1;
+  string username = 2;
+}
+
+// Response with active users
+message GetUsersResponse {
+  repeated string usernames = 1;
+  bool success = 2;
+  string message = 3;
+}
+
+// Chat message format
+message ChatMessage {
+  string username = 1;
+  string content = 2;
+  int64 timestamp = 3;
+}
+
+// Request to get chat log
+message GetLogRequest {
+  string topic = 1;
+  bool has_limit = 2;
+  int32 limit = 3;
+  bool has_username = 4;
+  string username = 5;
+  string source_username = 6;
+}
+
+message GetLogResponse {
+  repeated ChatMessage messages = 1;
+  string message = 2;
+  bool success = 3;
+}
+
+// Request to subscribe to a topic's messages
+message SubscribeRequest {
+  string topic = 1;
+  string username = 2;
+}
+

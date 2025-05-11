@@ -36,12 +36,12 @@ public class Aggregator {
     private CopyOnWriteArrayList<SCInfo> collectSCInfoFromNetwork(String topic, String username, int ttl, String uuid) {
         System.out.println("Starting aggregation for topic '" + topic + "' with TTL=" + ttl);
         
-        //Ip and age
-        Map<String, Integer> neighbors = cyclonPeer.getNeighbours();
+        //Port and age
+        Map<Integer, Integer> neighbors = cyclonPeer.getNeighbours();
         CountDownLatch latch = new CountDownLatch(neighbors.size());
         CopyOnWriteArrayList<SCInfo> candidates = new CopyOnWriteArrayList<>();
         
-        for (String peer : neighbors.keySet()) {
+        for (Integer peer : neighbors.keySet()) {
             executorService.submit(() -> {
                 try {
                     List<SCInfo> peerResults = contactPeerForSCInfo(peer, topic, username, ttl, uuid);
@@ -66,9 +66,9 @@ public class Aggregator {
         }
         
         // Remove duplicates based on IP address
-        Map<String, SCInfo> uniqueSCInfos = new HashMap<>();
+        Map<Integer, SCInfo> uniqueSCInfos = new HashMap<>();
         for (SCInfo info : candidates) {
-            uniqueSCInfos.put(info.getAddress(), info);
+            uniqueSCInfos.put(info.getPort(), info);
         }
         
         CopyOnWriteArrayList<SCInfo> uniqueResults = new CopyOnWriteArrayList<>(uniqueSCInfos.values());
@@ -76,12 +76,12 @@ public class Aggregator {
         return uniqueResults;
     }
     
-    private List<SCInfo> contactPeerForSCInfo(String peerAddress, String topic, String username, int ttl, String uuid) {
+    private List<SCInfo> contactPeerForSCInfo(Integer peerPort, String topic, String username, int ttl, String uuid) {
         List<SCInfo> results = new ArrayList<>();
         
         // Apply a short timeout to avoid hanging
         try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(peerAddress, Config.GOSSIP_PORT), 2000);
+            socket.connect(new InetSocketAddress("localhost", peerPort-2), 2000);
             socket.setSoTimeout(3000); // Read timeout
             
             BufferedWriter out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
@@ -89,7 +89,7 @@ public class Aggregator {
             
             // Include the UUID with the request
             String request = "HOST_TOPIC " + topic + " " + username + " " + ttl + " " + uuid + "\n";
-            System.out.println("Sending to " + peerAddress + ": " + request.trim());
+            System.out.println("Sending to " + peerPort + ": " + request.trim());
             
             out.write(request);
             out.flush();
@@ -99,7 +99,7 @@ public class Aggregator {
             
             String line;
             while ((line = in.readLine()) != null && !line.equals("END")) {
-                System.out.println("Response from " + peerAddress + ": " + line);
+                System.out.println("Response from " + peerPort + ": " + line);
                 
                 // Handle direct peer info (same format as before)
                 if (line.startsWith("NUM_CLIENTS")) {
@@ -116,30 +116,29 @@ public class Aggregator {
                     }
                     
                     if (numClients != Integer.MAX_VALUE && numTopics != Integer.MAX_VALUE) {
-                        peerInfo = new SCInfo(peerAddress, Config.SC_PORT, numClients, numTopics);
+                        peerInfo = new SCInfo(peerPort, numClients, numTopics);
                         results.add(peerInfo);
                     }
                 }
                 // Handle SC_INFO from deeper in the network
                 else if (line.startsWith("SC_INFO")) {
                     String[] parts = line.split(" ");
-                    if (parts.length >= 5) {
-                        String scIp = parts[1];
-                        int scPort = Integer.parseInt(parts[2]);
-                        int scClients = Integer.parseInt(parts[3]);
-                        int scTopics = Integer.parseInt(parts[4]);
+                    if (parts.length >= 4) {
+                        int scPort = Integer.parseInt(parts[1]);
+                        int scClients = Integer.parseInt(parts[2]);
+                        int scTopics = Integer.parseInt(parts[3]);
                         
-                        SCInfo remoteInfo = new SCInfo(scIp, scPort, scClients, scTopics);
+                        SCInfo remoteInfo = new SCInfo(scPort, scClients, scTopics);
                         results.add(remoteInfo);
                     }
                 }
             }
             
-            System.out.println("Collected " + results.size() + " SC infos from peer " + peerAddress);
+            System.out.println("Collected " + results.size() + " SC infos from peer " + peerPort);
             return results;
             
         } catch (IOException e) {
-            System.err.println("Failed to contact peer " + peerAddress + ": " + e.getMessage());
+            System.err.println("Failed to contact peer " + peerPort + ": " + e.getMessage());
             return results; // Return any results we may have collected before the error
         }
     }

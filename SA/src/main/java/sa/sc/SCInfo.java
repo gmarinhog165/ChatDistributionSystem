@@ -1,13 +1,11 @@
 package sa.sc;
 
 public class SCInfo {
-    public String address;
     public int port;
     public int numClients;
     public int numTopics;
 
-    public SCInfo(String address, int port,int numClients,int numTopics) {
-        this.address = address;
+    public SCInfo(int port,int numClients,int numTopics) {
         this.port = port;
         this.numClients = numClients;
         this.numTopics = numTopics;
@@ -15,15 +13,7 @@ public class SCInfo {
 
     @Override
     public String toString() {
-        return address + ":" + port + "," + numClients + "," + numTopics;
-    }
-
-    public String getAddress() {
-        return address;
-    }
-
-    public void setAddress(String address) {
-        this.address = address;
+        return port + "," + numClients + "," + numTopics;
     }
 
     public int getPort() {

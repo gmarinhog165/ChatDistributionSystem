@@ -10,13 +10,21 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Loopback IPs to use (within 127.0.0.0/8)
-LOOPBACK_BASE=127.0.0
+# Get the Maven classpath including all dependencies
+MAVEN_CLASSPATH=$(mvn dependency:build-classpath -Dmdep.outputFile=/dev/stdout -q)
 
-# Launch 5 instances on different loopback IPs
-for i in {1..10}
+# Combine with the target/classes directory
+FULL_CLASSPATH="target/classes:$MAVEN_CLASSPATH"
+
+echo "Using classpath: $FULL_CLASSPATH"
+
+# Array of ports
+PORTS=(5000 6000 7000 8000 9000)
+
+# Launch 5 instances with different ports
+for i in {0..4}
 do
-    IP="$LOOPBACK_BASE.$i"
-    echo "Launching instance $i on $IP"
-    gnome-terminal -- bash -c "java -cp target/classes sa.Main initial_peers_10.txt $IP; exec bash"
+    PORT=${PORTS[$i]}
+    echo "Launching instance $((i+1)) on port $PORT"
+    gnome-terminal -- bash -c "java -cp \"$FULL_CLASSPATH\" sa.Main initial_peers.txt $PORT; exec bash"
 done
