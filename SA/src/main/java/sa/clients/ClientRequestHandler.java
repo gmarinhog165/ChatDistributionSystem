@@ -100,7 +100,7 @@ public class ClientRequestHandler implements Runnable {
                     StringBuilder serverListBuilder = new StringBuilder();
                     for (int i = 0; i < selectedSCs.size(); i++) {
                         SCInfo sc = selectedSCs.get(i);
-                        serverListBuilder.append("localhost").append(":").append(sc.getPort());
+                        serverListBuilder.append("localhost").append(":").append(sc.getPort()-3);
                         if (i < selectedSCs.size() - 1) {
                             serverListBuilder.append(",");
                         }
