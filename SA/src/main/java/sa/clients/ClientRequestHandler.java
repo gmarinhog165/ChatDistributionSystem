@@ -82,6 +82,20 @@ public class ClientRequestHandler implements Runnable {
             handlerPool.submit(() -> {
                 try {
                     CopyOnWriteArrayList<SCInfo> scInfoList = aggregationFuture.get(10, TimeUnit.SECONDS);
+                    
+                    // Add your own SC's info to the list
+                    int[] localSCStats = querySCStatus();
+                    SCInfo localSCInfo = new SCInfo(myPort+1, localSCStats[0], localSCStats[1]);
+                    
+                    // Check if this SC is already in the list to avoid duplicates
+                    boolean exists = scInfoList.stream()
+                        .anyMatch(sc -> sc.getPort() == localSCInfo.getPort());
+                    
+                    if (!exists) {
+                        scInfoList.add(localSCInfo);
+                        System.out.println("Added local SC info: " + localSCInfo);
+                    }
+                    
                     scInfoList.sort(Comparator
                         .comparingInt(SCInfo::getNumClients)
                         .thenComparingInt(SCInfo::getNumTopics));
@@ -89,8 +103,8 @@ public class ClientRequestHandler implements Runnable {
                     System.out.println("Creating Topics on:");
                     System.out.println("Sorted SCs: " + scInfoList);
                     
-                    // Get the SC servers with least load (we'll pick the top 2 for redundancy)
-                    List<SCInfo> selectedSCs = selectSCsForTopic(scInfoList, 2);
+                    // Get the SC servers with least load
+                    List<SCInfo> selectedSCs = selectSCsForTopic(scInfoList, (Config.TOTAL_NODES+1)/2);
                     if (selectedSCs.isEmpty()) {
                         System.err.println("No SC servers available to create topic");
                         return;
@@ -152,8 +166,8 @@ public class ClientRequestHandler implements Runnable {
     // Match the port calculation with SAConnectionManager (port - 1)
     int zmqPort = scPort - 4;
     
-    System.out.println("SCPORT= " + scPort);
-    System.out.println("Connecting to SC's SUB socket on port " + zmqPort);
+    //System.out.println("SCPORT= " + scPort);
+    //System.out.println("Connecting to SC's SUB socket on port " + zmqPort);
     
    
         // Create PUSH socket to send message to the SC's PULL socket
@@ -164,8 +178,7 @@ public class ClientRequestHandler implements Runnable {
         System.out.println("Connecting to: " + connectionUrl);
         pushSocket.connect(connectionUrl);
         
-        // Instead of using sendMore (PUB/SUB pattern), send a single formatted message
-        // Format should match what SAConnectionManager expects when it splits the message
+
         String message = CMD_TOPIC_CONFIG + "|" + topic + "|" + serverList;
         System.out.println("Sending message: " + message);
         
@@ -206,5 +219,41 @@ public class ClientRequestHandler implements Runnable {
         } catch (InterruptedException e) {
             handlerPool.shutdownNow();
         }
+    }
+
+    private int[] querySCStatus() {
+        int numClients = -1;
+        int numTopics = -1;
+        
+        try {
+            // Create ZMQ context and socket
+            ZMQ.Context context = ZMQ.context(1);
+            ZMQ.Socket requester = context.socket(ZMQ.REQ);
+            
+            // Connect to the SAConnectionManager's REP port
+            requester.connect("tcp://localhost:" + (myPort - 2 + 200));
+            
+            System.out.println("Sending STATUS_REQUEST to my own SC" + (myPort - 2 + 200));
+            requester.send("STATUS_REQUEST");
+            
+            // Set timeout and receive response
+            String response = requester.recvStr(2000);
+            System.out.println("Received status " + response);
+            
+            if (response != null && response.contains(":")) {
+                String[] parts = response.split(":");
+                numClients = Integer.parseInt(parts[0]);
+                numTopics = Integer.parseInt(parts[1]);
+            } else {
+                System.err.println("Invalid or no response from SAConnectionManager");
+            }
+            
+            requester.close();
+            context.term();
+        } catch (Exception e) {
+            System.err.println("Error querying SC status: " + e.getMessage());
+        }
+        
+        return new int[]{numClients, numTopics};
     }
 }

@@ -76,6 +76,7 @@ public class CyclonPeer {
             out.writeObject(toSend);
 
             // Merge received peers into our view
+            System.out.println("Received peers:" + receivedPeers);
             mergePeerList(receivedPeers);
 
         } catch (IOException | ClassNotFoundException e) {
@@ -157,19 +158,30 @@ public class CyclonPeer {
         return subset;
     }
 
-    private void mergePeerList(Map<Integer, Integer> newPeers) {
-        // Remove self from received peers
-        
-        newPeers.remove(this.port);
+private void mergePeerList(Map<Integer, Integer> newPeers) {
+    newPeers.remove(this.port); // Remove o próprio nó da lista recebida
 
-        // Merge with local view, keeping view size limited
-        while (!newPeers.isEmpty() && neighbours.size() < viewSize) {
-            // Find a peer to add (preferably young ones)
-            Integer peerToAdd = findYoungestPeer(newPeers);
+    // Tenta adicionar novos peers até completar o viewSize
+    while (!newPeers.isEmpty()) {
+        Integer peerToAdd = findYoungestPeer(newPeers);
+        if (peerToAdd == null) break;
+
+        // Se ainda houver espaço, apenas adiciona
+        if (neighbours.size() < viewSize) {
             neighbours.put(peerToAdd, newPeers.get(peerToAdd));
-            newPeers.remove(peerToAdd);
+        } else {
+            // View cheia: substituir o peer mais velho se o novo for mais jovem
+            Integer oldestPeer = findOldestPeer();
+            if (oldestPeer != null && neighbours.get(oldestPeer) > newPeers.get(peerToAdd)) {
+                neighbours.remove(oldestPeer);
+                neighbours.put(peerToAdd, newPeers.get(peerToAdd));
+            }
         }
+
+        newPeers.remove(peerToAdd);
     }
+}
+
 
     private Integer findYoungestPeer(Map<Integer, Integer> peers) {
         Integer youngestPeer = null;
