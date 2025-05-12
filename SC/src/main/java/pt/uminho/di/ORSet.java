@@ -52,44 +52,55 @@ public class ORSet {
     }
 
     public void join(ORSet other) {
-        // Atualiza o contexto causal (join dos contextos)
+        // Update causal context (join of contexts)
         for (Map.Entry<String, Integer> entry : other.causalContext.entrySet()) {
             String server = entry.getKey();
             int version = entry.getValue();
             this.causalContext.put(server, Math.max(this.causalContext.getOrDefault(server, 0), version));
         }
 
-        // União de todas as chaves (elementos)
+        // Union of all keys (elements)
         Set<String> allElements = new HashSet<>(this.dotMap.keySet());
         allElements.addAll(other.dotMap.keySet());
 
         for (String element : allElements) {
-            Set<Dot> selfDots = this.dotMap.getOrDefault(element, Set.of());
-            Set<Dot> otherDots = other.dotMap.getOrDefault(element, Set.of());
+            Set<Dot> selfDots = this.dotMap.getOrDefault(element, new HashSet<>());
+            Set<Dot> otherDots = other.dotMap.getOrDefault(element, new HashSet<>());
 
             Set<Dot> survivingDots = new HashSet<>();
 
-            // Dots do próprio ORSet (this)
+            // Dots from this ORSet
             for (Dot dot : selfDots) {
+                // A dot from self survives if:
+                // 1. It is NOT covered by other's causal context (the other hasn't "seen" operations that would remove it)
+                // OR
+                // 2. It is explicitly present in other's dot set for this element
                 int ccOther = other.causalContext.getOrDefault(dot.getServer(), 0);
-                boolean covered = dot.getValue() <= ccOther;
+                // IMPORTANT: A dot is only considered "covered" if the causal context has a STRICTLY HIGHER version
+                // Equal versions means both have seen the same operation, not that it's been removed
+                boolean covered = dot.getValue() < ccOther;  // Changed from <= to <
                 boolean inOther = otherDots.contains(dot);
+
+                // The key fix is here - we add the dot if it's NOT covered OR if it's in other
                 if (!covered || inOther) {
                     survivingDots.add(dot);
                 }
             }
 
-            // Dots do ORSet recebido (other)
+            // Dots from the other ORSet
             for (Dot dot : otherDots) {
+                // Similar logic for other's dots
                 int ccSelf = this.causalContext.getOrDefault(dot.getServer(), 0);
-                boolean covered = dot.getValue() <= ccSelf;
+                // IMPORTANT: A dot is only considered "covered" if the causal context has a STRICTLY HIGHER version
+                boolean covered = dot.getValue() < ccSelf;  // Changed from <= to <
                 boolean inSelf = selfDots.contains(dot);
+
                 if (!covered || inSelf) {
                     survivingDots.add(dot);
                 }
             }
 
-            // Atualiza dotMap apenas se houver sobreviventes
+            // Update dotMap only if there are survivors
             if (!survivingDots.isEmpty()) {
                 this.dotMap.put(element, survivingDots);
             } else {

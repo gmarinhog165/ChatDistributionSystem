@@ -67,7 +67,7 @@ public class ChatServer {
 
     public static void main(String[] args) throws Exception {
         // Default port
-        int port = 50052;
+        int port = 50062;
         String hostname = InetAddress.getLocalHost().getHostName();
 
         if (args.length > 0) {

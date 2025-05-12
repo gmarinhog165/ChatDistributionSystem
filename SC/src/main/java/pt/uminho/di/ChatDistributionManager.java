@@ -227,14 +227,7 @@ public class ChatDistributionManager {
         remote.setCausalContext(container.getCausalContext());
         remote.setDotMap(container.getDotMap());
 
-        System.out.println("Local");
-        System.out.println(localSet.toString());
-        System.out.println("Remote");
-        System.out.println(remote.toString());
-
         localSet.join(remote);
-        System.out.println("Depois do merge");
-        System.out.println(localSet.toString());
         logger.info("Merged ORSet for topic " + topic + " from server " + container.getSenderId());
     }
 
