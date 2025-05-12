@@ -33,6 +33,9 @@ public class ChatDistributionManager {
     private final Map<String, Map<String, Integer>> topicVectorClocks;
     private final Map<String, List<MessageContainer>> messageBuffers;
 
+    // CRDT
+    private final Map<String, ORSet> topicUsers;
+
     private final ScheduledExecutorService scheduler;
 
     public ChatDistributionManager(
@@ -40,13 +43,15 @@ public class ChatDistributionManager {
             int port,
             Map<String, List<ChatMessage>> chatMessages,
             Map<String, PublishSubject<ChatMessage>> topicPublishers,
-            Map<String, Set<String>> topicServers) {
+            Map<String, Set<String>> topicServers,
+            Map<String, ORSet> topicUsers) {
 
         this.serverId = serverId;
         this.port = port;
         this.chatMessages = chatMessages;
         this.topicPublishers = topicPublishers;
         this.topicServers = topicServers;
+        this.topicUsers = topicUsers;
 
         this.topicVectorClocks = new ConcurrentHashMap<>();
         this.messageBuffers = new ConcurrentHashMap<>();
@@ -97,6 +102,10 @@ public class ChatDistributionManager {
         chatMessages.put(topic, new ArrayList<>());
 
         messageBuffers.put(topic, Collections.synchronizedList(new ArrayList<>()));
+
+        ORSet userSet = new ORSet();
+        userSet.initCausalContext(servers);
+        topicUsers.put(topic, userSet);
 
         for (String serverAddress : servers) {
             if (!serverAddress.equals(serverId)) {

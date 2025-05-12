@@ -15,7 +15,7 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
     private static final Logger logger = Logger.getLogger(ChatServiceImpl.class.getName());
 
     // Chat state data structures
-    private final Map<String, Set<String>> topicUsers;
+    private final Map<String, ORSet> topicUsers;
     private final Map<String, List<ChatMessage>> chatMessages;
     private final Map<String, PublishSubject<ChatMessage>> topicPublishers;
 
@@ -42,7 +42,8 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
                 port,
                 chatMessages,
                 topicPublishers,
-                topicServers
+                topicServers,
+                topicUsers
         );
 
         this.saConnectionManager = new SAConnectionManager(
@@ -68,7 +69,12 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
             }
 
             // Initialize topic structures if this is the first join
-            this.topicUsers.computeIfAbsent(topic, k -> ConcurrentHashMap.newKeySet()).add(username);
+            topicUsers.computeIfAbsent(topic, k -> {
+                ORSet s = new ORSet();
+                Set<String> servers = topicServers.getOrDefault(topic, Set.of(serverId));
+                s.initCausalContext(servers);
+                return s;
+            }).add(serverId, username);
             this.chatMessages.computeIfAbsent(topic, k -> Collections.synchronizedList(new ArrayList<>()));
             this.topicPublishers.computeIfAbsent(topic, k -> PublishSubject.create());
 
@@ -122,7 +128,7 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
             String username = req.getUsername();
             String content = req.getContent();
 
-            if(!this.topicUsers.containsKey(topic) || !this.topicUsers.get(topic).contains(username)) {
+            if(!this.topicUsers.containsKey(topic) || !this.topicUsers.get(topic).elements().contains(username)) {
                 return SendMessageResponse.newBuilder()
                         .setSuccess(false)
                         .setMessage("Error: topic not found or user not subscribed!")
@@ -159,14 +165,14 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
         return request.map(req -> {
             String topic = req.getTopic();
             String username = req.getUsername();
-            if(!this.topicUsers.containsKey(topic) || !this.topicUsers.get(topic).contains(username)) {
+            if(!this.topicUsers.containsKey(topic) || !this.topicUsers.get(topic).elements().contains(username)) {
                 return GetUsersResponse.newBuilder()
                         .setSuccess(false)
                         .setMessage("Error: topic not found or user not subscribed!")
                         .addAllUsernames(new ArrayList<>())
                         .build();
             }
-            List<String> usernames = new ArrayList<>(topicUsers.get(topic));
+            List<String> usernames = new ArrayList<>(topicUsers.get(topic).elements());
 
             return GetUsersResponse.newBuilder()
                     .setSuccess(true)
@@ -220,7 +226,7 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
             String topic = req.getTopic();
             String username = req.getUsername();
 
-            if (!topicUsers.containsKey(topic) || !topicUsers.get(topic).contains(username)) {
+            if (!topicUsers.containsKey(topic) || !topicUsers.get(topic).elements().contains(username)) {
                 return Flowable.error(new RuntimeException("User not subscribed to topic or topic doesn't exist"));
             }
 
