@@ -6,6 +6,7 @@ import org.zeromq.ZMQ;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -19,6 +20,7 @@ public class SAConnectionManager {
     private final int port;
 
     private final Map<String, Set<String>> topicServers;
+    private final Map<String, ORSet> topicUsers;
 
     // Counter for total active clients
     private final AtomicInteger activeClientCount = new AtomicInteger(0);
@@ -34,10 +36,11 @@ public class SAConnectionManager {
     private static final String CMD_TOPIC_CONFIG = "TOPIC_CONFIG";
     private static final String CMD_STATUS_REQUEST = "STATUS_REQUEST";
 
-    public SAConnectionManager(String serverId, int port, Map<String, Set<String>> topicServers) {
+    public SAConnectionManager(String serverId, int port, Map<String, Set<String>> topicServers, Map<String, ORSet> topicUsers) {
         this.serverId = serverId;
         this.port = port;
         this.topicServers = topicServers;
+        this.topicUsers = topicUsers;
 
         this.context = new ZContext();
 
@@ -128,6 +131,9 @@ public class SAConnectionManager {
     public void configureTopic(String topic, Set<String> servers) {
         // Store the server list in the shared map
         topicServers.put(topic, servers);
+        ORSet orset = new ORSet();
+        orset.initCausalContext(servers);
+        topicUsers.put(topic, orset);
         logger.info("Configured topic " + topic + " with servers: " + servers);
     }
 

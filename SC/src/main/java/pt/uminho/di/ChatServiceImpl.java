@@ -49,7 +49,8 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
         this.saConnectionManager = new SAConnectionManager(
                 serverId,
                 port,
-                topicServers
+                topicServers,
+                topicUsers
         );
 
         logger.info("ChatServiceImpl initialized with server ID: " + serverId + " on port: " + port);
@@ -69,12 +70,6 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
             }
 
             // Initialize topic structures if this is the first join
-            topicUsers.computeIfAbsent(topic, k -> {
-                ORSet s = new ORSet();
-                Set<String> servers = topicServers.getOrDefault(topic, Set.of(serverId));
-                s.initCausalContext(servers);
-                return s;
-            }).add(serverId, username);
             this.chatMessages.computeIfAbsent(topic, k -> Collections.synchronizedList(new ArrayList<>()));
             this.topicPublishers.computeIfAbsent(topic, k -> PublishSubject.create());
 
@@ -82,6 +77,7 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
             saConnectionManager.incrementClientCount();
 
             //TODO chamar método da classe responsável pelo CRDT
+            topicUsers.get(topic).add(serverId, username);
 
             logger.info("User " + username + " joined topic: " + topic);
 
@@ -99,12 +95,12 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
             String username = req.getUsername();
 
             if (this.topicUsers.containsKey(topic)) {
-                topicUsers.get(topic).remove(username);
 
                 // Decrement active client count in SA connection manager
                 saConnectionManager.decrementClientCount();
 
                 //TODO chamar método da classe responsável pelo CRDT
+                topicUsers.get(topic).remove(username);
 
                 logger.info("User " + username + " left topic: " + topic);
 

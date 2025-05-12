@@ -103,9 +103,9 @@ public class ChatDistributionManager {
 
         messageBuffers.put(topic, Collections.synchronizedList(new ArrayList<>()));
 
-        ORSet userSet = new ORSet();
-        userSet.initCausalContext(servers);
-        topicUsers.put(topic, userSet);
+        ORSet orSet = new ORSet();
+        orSet.initCausalContext(servers);
+        topicUsers.put(topic, orSet);
 
         for (String serverAddress : servers) {
             if (!serverAddress.equals(serverId)) {
