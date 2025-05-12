@@ -16,7 +16,8 @@ public class SAMock {
         try (ZContext context = new ZContext()) {
             // Create publisher socket for topic configuration
             ZMQ.Socket pubSocket = context.createSocket(SocketType.PUB);
-            pubSocket.bind("tcp://*:" + (scPort - 1));
+            pubSocket.bind("tcp://*:" + (50051));
+            pubSocket.bind("tcp://*:" + (50061));
 
             // Create request socket for status queries
             ZMQ.Socket reqSocket = context.createSocket(SocketType.REQ);

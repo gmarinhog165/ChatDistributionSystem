@@ -15,7 +15,7 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
     private static final Logger logger = Logger.getLogger(ChatServiceImpl.class.getName());
 
     // Chat state data structures
-    private final Map<String, Set<String>> topicUsers;
+    private final Map<String, ORSet> topicUsers;
     private final Map<String, List<ChatMessage>> chatMessages;
     private final Map<String, PublishSubject<ChatMessage>> topicPublishers;
 
@@ -42,7 +42,8 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
                 port,
                 chatMessages,
                 topicPublishers,
-                topicServers
+                topicServers,
+                topicUsers
         );
 
         this.saConnectionManager = new SAConnectionManager(
@@ -68,7 +69,6 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
             }
 
             // Initialize topic structures if this is the first join
-            this.topicUsers.computeIfAbsent(topic, k -> ConcurrentHashMap.newKeySet()).add(username);
             this.chatMessages.computeIfAbsent(topic, k -> Collections.synchronizedList(new ArrayList<>()));
             this.topicPublishers.computeIfAbsent(topic, k -> PublishSubject.create());
 
@@ -76,6 +76,8 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
             saConnectionManager.incrementClientCount();
 
             //TODO chamar método da classe responsável pelo CRDT
+            topicUsers.get(topic).add(serverId, username);
+            System.out.println(topicUsers.get(topic).toString());
 
             logger.info("User " + username + " joined topic: " + topic);
 
@@ -93,12 +95,12 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
             String username = req.getUsername();
 
             if (this.topicUsers.containsKey(topic)) {
-                topicUsers.get(topic).remove(username);
 
                 // Decrement active client count in SA connection manager
                 saConnectionManager.decrementClientCount();
 
                 //TODO chamar método da classe responsável pelo CRDT
+                topicUsers.get(topic).remove(serverId, username);
 
                 logger.info("User " + username + " left topic: " + topic);
 
@@ -122,7 +124,7 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
             String username = req.getUsername();
             String content = req.getContent();
 
-            if(!this.topicUsers.containsKey(topic) || !this.topicUsers.get(topic).contains(username)) {
+            if(!this.topicUsers.containsKey(topic) || !this.topicUsers.get(topic).elements().contains(username)) {
                 return SendMessageResponse.newBuilder()
                         .setSuccess(false)
                         .setMessage("Error: topic not found or user not subscribed!")
@@ -159,14 +161,14 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
         return request.map(req -> {
             String topic = req.getTopic();
             String username = req.getUsername();
-            if(!this.topicUsers.containsKey(topic) || !this.topicUsers.get(topic).contains(username)) {
+            if(!this.topicUsers.containsKey(topic) || !this.topicUsers.get(topic).elements().contains(username)) {
                 return GetUsersResponse.newBuilder()
                         .setSuccess(false)
                         .setMessage("Error: topic not found or user not subscribed!")
                         .addAllUsernames(new ArrayList<>())
                         .build();
             }
-            List<String> usernames = new ArrayList<>(topicUsers.get(topic));
+            List<String> usernames = new ArrayList<>(topicUsers.get(topic).elements());
 
             return GetUsersResponse.newBuilder()
                     .setSuccess(true)
@@ -220,7 +222,7 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
             String topic = req.getTopic();
             String username = req.getUsername();
 
-            if (!topicUsers.containsKey(topic) || !topicUsers.get(topic).contains(username)) {
+            if (!topicUsers.containsKey(topic) || !topicUsers.get(topic).elements().contains(username)) {
                 return Flowable.error(new RuntimeException("User not subscribed to topic or topic doesn't exist"));
             }
 
