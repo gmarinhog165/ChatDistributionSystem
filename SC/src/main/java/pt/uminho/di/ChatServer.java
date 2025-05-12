@@ -79,7 +79,7 @@ public class ChatServer {
         }
 
         // Create server ID in format "hostname:port"
-        String serverId = hostname + ":" + port;
+        String serverId = "localhost" + ":" + port;
 
         if (args.length > 1) {
             serverId = args[1];

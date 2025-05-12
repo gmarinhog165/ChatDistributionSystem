@@ -14,6 +14,22 @@ public class ORSet {
         this.causalContext = new HashMap<>();
     }
 
+    public Map<String, Integer> getCausalContext() {
+        return causalContext;
+    }
+
+    public Map<String, Set<Dot>> getDotMap() {
+        return dotMap;
+    }
+
+    public void setCausalContext(Map<String, Integer> cc) {
+        this.causalContext = cc;
+    }
+
+    public void setDotMap(Map<String, Set<Dot>> dm) {
+        this.dotMap = dm;
+    }
+
     public void initCausalContext(Set<String> servers) {
         for (String server : servers) {
             this.causalContext.put(server, 0);
@@ -36,60 +52,77 @@ public class ORSet {
     }
 
     public void join(ORSet other) {
-        // Atualiza o contexto causal
+        // Atualiza o contexto causal (join dos contextos)
         for (Map.Entry<String, Integer> entry : other.causalContext.entrySet()) {
             String server = entry.getKey();
             int version = entry.getValue();
             this.causalContext.put(server, Math.max(this.causalContext.getOrDefault(server, 0), version));
         }
 
-        // Processa os elementos de ambos os sets
+        // União de todas as chaves (elementos)
         Set<String> allElements = new HashSet<>(this.dotMap.keySet());
         allElements.addAll(other.dotMap.keySet());
 
         for (String element : allElements) {
-            Set<Dot> selfDots = this.dotMap.getOrDefault(element, new HashSet<>());
-            Set<Dot> otherDots = other.dotMap.getOrDefault(element, new HashSet<>());
+            Set<Dot> selfDots = this.dotMap.getOrDefault(element, Set.of());
+            Set<Dot> otherDots = other.dotMap.getOrDefault(element, Set.of());
 
-            Set<Dot> survivingSelfDots = new HashSet<>();
+            Set<Dot> survivingDots = new HashSet<>();
+
+            // Dots do próprio ORSet (this)
             for (Dot dot : selfDots) {
-                if (!other.causalContext.containsKey(dot.getServer()) || dot.getValue() > other.causalContext.get(dot.getServer())) {
-                    survivingSelfDots.add(dot);
+                int ccOther = other.causalContext.getOrDefault(dot.getServer(), 0);
+                boolean covered = dot.getValue() <= ccOther;
+                boolean inOther = otherDots.contains(dot);
+                if (!covered || inOther) {
+                    survivingDots.add(dot);
                 }
             }
 
-            Set<Dot> survivingOtherDots = new HashSet<>();
+            // Dots do ORSet recebido (other)
             for (Dot dot : otherDots) {
-                if (!this.causalContext.containsKey(dot.getServer()) || dot.getValue() > this.causalContext.get(dot.getServer())) {
-                    survivingOtherDots.add(dot);
+                int ccSelf = this.causalContext.getOrDefault(dot.getServer(), 0);
+                boolean covered = dot.getValue() <= ccSelf;
+                boolean inSelf = selfDots.contains(dot);
+                if (!covered || inSelf) {
+                    survivingDots.add(dot);
                 }
             }
 
-            survivingSelfDots.addAll(survivingOtherDots);
-
-            if (!survivingSelfDots.isEmpty()) {
-                this.dotMap.put(element, survivingSelfDots);
+            // Atualiza dotMap apenas se houver sobreviventes
+            if (!survivingDots.isEmpty()) {
+                this.dotMap.put(element, survivingDots);
             } else {
-                this.dotMap.remove(element); // limpa se não sobrarem dots
+                this.dotMap.remove(element);
             }
         }
     }
 
-    private static class Dot {
-        private String server;
-        private int value;
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("ORSet {\n");
 
-        public Dot(String server, int value) {
-            this.server = server;
-            this.value = value;
+        sb.append("  Causal Context:\n");
+        for (Map.Entry<String, Integer> entry : causalContext.entrySet()) {
+            sb.append("    ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
         }
 
-        public String getServer() {
-            return server;
+        sb.append("  Dot Map:\n");
+        for (Map.Entry<String, Set<Dot>> entry : dotMap.entrySet()) {
+            sb.append("    ").append(entry.getKey()).append(": ");
+            sb.append("[");
+            for (Dot dot : entry.getValue()) {
+                sb.append("(").append(dot.getServer()).append(",").append(dot.getValue()).append("), ");
+            }
+            if (!entry.getValue().isEmpty()) {
+                sb.setLength(sb.length() - 2); // remove trailing comma and space
+            }
+            sb.append("]\n");
         }
 
-        public int getValue() {
-            return value;
-        }
+        sb.append("}");
+        return sb.toString();
     }
+
 }

@@ -333,7 +333,7 @@ public class ChatClient {
 
     public static void main(String[] args) {
         String host = "localhost";
-        int port = 50062;
+        int port = 50052;
         String username = "user" + System.currentTimeMillis() % 1000; // Default username
 
         // Parse command line arguments

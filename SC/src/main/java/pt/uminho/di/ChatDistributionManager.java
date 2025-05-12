@@ -72,6 +72,9 @@ public class ChatDistributionManager {
         // Start the topic monitor to detect changes in the topicServers map
         scheduler.scheduleWithFixedDelay(this::monitorTopicChanges, 5, 5, TimeUnit.SECONDS);
 
+        //
+        scheduler.scheduleAtFixedRate(this::propagateORSets, 3, 3, TimeUnit.SECONDS);
+
         logger.info("Chat Distribution Manager initialized with ID: " + serverId);
     }
 
@@ -91,6 +94,26 @@ public class ChatDistributionManager {
             logger.warning("Error in topic monitor: " + e.getMessage());
         }
     }
+
+    private void propagateORSets() {
+        for (Map.Entry<String, ORSet> entry : topicUsers.entrySet()) {
+            String topic = entry.getKey();
+            ORSet orset = entry.getValue();
+
+            UserSetContainer container = new UserSetContainer(
+                    topic,
+                    new HashMap<>(orset.getCausalContext()),
+                    orset.getDotMap(),
+                    serverId
+            );
+
+            publishSocket.sendMore(topic + "_userset");
+            publishSocket.send(container.toBytes());
+
+            logger.info("Propagated ORSet for topic " + topic + " to peers.");
+        }
+    }
+
 
     private void configureTopic(String topic, Set<String> servers) {
         // Initialize vector clock for this topic
@@ -119,6 +142,7 @@ public class ChatDistributionManager {
         }
 
         subscribeSocket.subscribe(topic);
+        subscribeSocket.subscribe((topic + "_userset"));
         logger.info("Configured topic: " + topic + " with servers: " + servers);
     }
 
@@ -133,8 +157,15 @@ public class ChatDistributionManager {
                     byte[] messageData = subscribeSocket.recv();
                     if (messageData == null) continue;
 
+                    if (topic.endsWith("_userset")) {
+                        UserSetContainer container = UserSetContainer.fromBytes(messageData);
+                        processUserSet(container);
+                        continue;
+                    }
+
                     MessageContainer container = MessageContainer.fromBytes(messageData);
                     processReceivedMessage(container);
+
                 } catch (Exception e) {
                     logger.warning("Error receiving message: " + e.getMessage());
                 }
@@ -181,6 +212,30 @@ public class ChatDistributionManager {
             messageBuffers.get(topic).add(container);
             logger.info("Buffered message for topic: " + topic + " from server: " + container.getSenderId());
         }
+    }
+
+    private void processUserSet(UserSetContainer container) {
+        String topic = container.getTopic();
+        if (!topicUsers.containsKey(topic)) {
+            logger.warning("Received ORSet update for unknown topic: " + topic);
+            return;
+        }
+
+        ORSet localSet = topicUsers.get(topic);
+
+        ORSet remote = new ORSet();
+        remote.setCausalContext(container.getCausalContext());
+        remote.setDotMap(container.getDotMap());
+
+        System.out.println("Local");
+        System.out.println(localSet.toString());
+        System.out.println("Remote");
+        System.out.println(remote.toString());
+
+        localSet.join(remote);
+        System.out.println("Depois do merge");
+        System.out.println(localSet.toString());
+        logger.info("Merged ORSet for topic " + topic + " from server " + container.getSenderId());
     }
 
     private boolean canDeliver(MessageContainer container, Map<String, Integer> localClock) {

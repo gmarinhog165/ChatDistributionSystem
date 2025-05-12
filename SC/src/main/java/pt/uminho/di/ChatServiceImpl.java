@@ -49,8 +49,7 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
         this.saConnectionManager = new SAConnectionManager(
                 serverId,
                 port,
-                topicServers,
-                topicUsers
+                topicServers
         );
 
         logger.info("ChatServiceImpl initialized with server ID: " + serverId + " on port: " + port);
@@ -78,6 +77,7 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
 
             //TODO chamar método da classe responsável pelo CRDT
             topicUsers.get(topic).add(serverId, username);
+            System.out.println(topicUsers.get(topic).toString());
 
             logger.info("User " + username + " joined topic: " + topic);
 
