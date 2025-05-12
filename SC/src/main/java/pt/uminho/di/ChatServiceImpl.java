@@ -100,7 +100,7 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
                 saConnectionManager.decrementClientCount();
 
                 //TODO chamar método da classe responsável pelo CRDT
-                topicUsers.get(topic).remove(username);
+                topicUsers.get(topic).remove(serverId, username);
 
                 logger.info("User " + username + " left topic: " + topic);
 
