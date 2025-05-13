@@ -19,7 +19,12 @@ public class Aggregator {
     // Plumtree-specific data structures
     private final Set<Integer> eagerPeers = ConcurrentHashMap.newKeySet(); // Eager push set
     private final Set<Integer> lazyPeers = ConcurrentHashMap.newKeySet(); // Lazy push set
-    private final Map<String, Set<Integer>> messageOrigins = new ConcurrentHashMap<>(); // Track where we first saw a message
+
+    private final Map<String, CopyOnWriteArrayList<SCInfo>> activeAggregations = new ConcurrentHashMap<>();
+    
+
+    // Store full aggregation requests for IWANT handling
+    private final Map<String, StoredMessage> pendingRequests = new ConcurrentHashMap<>();
     
     public Aggregator(CyclonPeer cyclonPeer) {
         this.cyclonPeer = cyclonPeer;
@@ -40,8 +45,12 @@ public class Aggregator {
         String uuid = UUID.randomUUID().toString();
         
         // Register this request as "seen" by us to prevent loops
-        String requestId = topic + ":" + username + ":" + uuid;
+        String requestId = uuid;
         seenRequests.add(requestId);
+        
+        // Store the full request for potential IWANT responses
+        StoredMessage request = new StoredMessage(topic, username, uuid, 1);
+        pendingRequests.put(requestId, request);
         
         System.out.println("Initiating Plumtree aggregation with ID: " + requestId);
         
@@ -55,8 +64,10 @@ public class Aggregator {
         CountDownLatch lazyLatch = new CountDownLatch(lazyPeers.size());
         CopyOnWriteArrayList<SCInfo> candidates = new CopyOnWriteArrayList<>();
         
-        String requestId = topic + ":" + username + ":" + uuid;
+        String requestId = uuid;
         
+        activeAggregations.put(requestId, candidates);
+
         // Send EAGER push to eager peers
         for (Integer peer : eagerPeers) {
             executorService.submit(() -> {
@@ -64,6 +75,7 @@ public class Aggregator {
                     List<SCInfo> peerResults = contactPeerWithEagerPush(peer, topic, username, ttl, uuid);
                     if (peerResults != null && !peerResults.isEmpty()) {
                         candidates.addAll(peerResults);
+
                     }
                 } catch (Exception e) {
                     System.err.println("Error contacting eager peer " + peer + ": " + e.getMessage());
@@ -77,7 +89,7 @@ public class Aggregator {
         for (Integer peer : lazyPeers) {
             executorService.submit(() -> {
                 try {
-                    sendLazyPushNotification(peer, topic, username, uuid);
+                    handleLazyPushResponse(peer, topic, username, uuid);
                 } catch (Exception e) {
                     System.err.println("Error sending lazy notification to peer " + peer + ": " + e.getMessage());
                 } finally {
@@ -85,7 +97,7 @@ public class Aggregator {
                 }
             });
         }
-        
+            
         try {
             boolean eagerCompleted = eagerLatch.await(5, TimeUnit.SECONDS);
             boolean lazyCompleted = lazyLatch.await(2, TimeUnit.SECONDS);
@@ -97,20 +109,30 @@ public class Aggregator {
             Thread.currentThread().interrupt();
         }
         
+        CopyOnWriteArrayList<SCInfo> latestCandidates = activeAggregations.get(requestId);
+        if (latestCandidates == null) {
+            latestCandidates = candidates;
+        }
+    
         // Remove duplicates based on port address
         Map<Integer, SCInfo> uniqueSCInfos = new HashMap<>();
-        for (SCInfo info : candidates) {
+        for (SCInfo info : latestCandidates) {
             uniqueSCInfos.put(info.getPort(), info);
         }
         
         CopyOnWriteArrayList<SCInfo> uniqueResults = new CopyOnWriteArrayList<>(uniqueSCInfos.values());
-        System.out.println("Plumtree aggregation complete. Collected " + uniqueResults.size() + " unique SC nodes.");
+        //System.out.println("Plumtree aggregation complete. Collected " + uniqueResults.size() + " unique SC nodes.");
+        
+        // Clean up the stored request
+        pendingRequests.remove(requestId);
+        activeAggregations.remove(requestId);
+        System.out.println("AGGREGATION ENDED WITH DATA: " + uniqueResults);
         return uniqueResults;
     }
     
     private List<SCInfo> contactPeerWithEagerPush(Integer peerPort, String topic, String username, int ttl, String uuid) {
         List<SCInfo> results = new ArrayList<>();
-        String requestId = topic + ":" + username + ":" + uuid;
+        String requestId = uuid;
         
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress("localhost", peerPort-2), 2000);
@@ -168,9 +190,7 @@ public class Aggregator {
                 }
             }
             
-            // Track this peer as one that sent us this message
-            Set<Integer> origins = messageOrigins.computeIfAbsent(requestId, k -> ConcurrentHashMap.newKeySet());
-            origins.add(peerPort);
+
             
             System.out.println("Collected " + results.size() + " SC infos from peer " + peerPort);
             return results;
@@ -181,7 +201,7 @@ public class Aggregator {
         }
     }
     
-    private void sendLazyPushNotification(Integer peerPort, String topic, String username, String uuid) {
+  private void handleLazyPushResponse(Integer peerPort, String topic, String username, String uuid) {
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress("localhost", peerPort-2), 2000);
             socket.setSoTimeout(2000); // Short timeout for lazy push
@@ -190,7 +210,7 @@ public class Aggregator {
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             
             // Send LAZY push notification (metadata only)
-            String request = "LAZY_PUSH " + topic + " " + username + " " + uuid + "\n";
+            String request = "LAZY_PUSH " + uuid + "\n";
             System.out.println("Sending LAZY_PUSH to " + peerPort + ": " + request.trim());
             
             out.write(request);
@@ -200,28 +220,61 @@ public class Aggregator {
             while ((line = in.readLine()) != null && !line.equals("END")) {
                 System.out.println("Lazy push response from " + peerPort + ": " + line);
                 
-                if (line.startsWith("GRAFT")) {
-                    // Handle GRAFT message - peer wants the full message
-                    System.out.println("Received GRAFT from " + peerPort + ", moving to eager set");
-                    moveToEagerSet(peerPort);
-                    
-                    // Extract topic, username and uuid from the GRAFT message
+                if (line.startsWith("IWANT")) {
+                    // Handle IWANT message - peer wants the full message
                     String[] parts = line.split(" ");
-                    if (parts.length >= 4) {
-                        String graftTopic = parts[1];
-                        String graftUsername = parts[2];
-                        String graftUuid = parts[3];
+                    if (parts.length >= 2) {
+                        String wantedid = parts[1];
                         
-                        // Send the full message to the peer that wants it
+                        System.out.println("Received IWANT from " + peerPort + " for message id: " + wantedid);
+                        
+                        // Send the full message to the peer that wants it and aggregate the response
                         executorService.submit(() -> 
-                            contactPeerWithEagerPush(peerPort, graftTopic, graftUsername, Config.GOSSIP_TTL, graftUuid)
+                            sendFullMessageAndAggregate(peerPort,wantedid)
                         );
                     }
+                } else if (line.startsWith("GRAFT")) {
+                    // Handle GRAFT message - peer wants to be in eager set
+                    System.out.println("Received GRAFT from " + peerPort + ", moving to eager set");
+                    moveToEagerSet(peerPort);
                 }
             }
             
         } catch (IOException e) {
             System.err.println("Failed to send lazy push to peer " + peerPort + ": " + e.getMessage());
+        }
+    }
+
+    private void sendFullMessageAndAggregate(Integer peerPort,String uuid) {
+        String requestId = uuid;
+        StoredMessage request = pendingRequests.get(requestId);
+        
+        if (request == null) {
+            System.err.println("No pending request found for " + requestId);
+            return;
+        }
+        
+        // Get the active aggregation results for this request
+        CopyOnWriteArrayList<SCInfo> aggregationResults = activeAggregations.get(requestId);
+        
+        if (aggregationResults == null) {
+            System.err.println("No active aggregation found for " + requestId);
+            return;
+        }
+        
+        // Send the full EAGER_PUSH message and collect results
+        try {
+            List<SCInfo> results = contactPeerWithEagerPush(peerPort, request.getTopic(), request.getUsername(), request.getTTL(),uuid);
+            
+            // Aggregate the results into the main collection
+            if (results != null && !results.isEmpty()) {
+                aggregationResults.addAll(results);
+                System.out.println("Aggregated " + results.size() + " SCInfo results from IWANT response from peer " + peerPort);
+            }
+            
+            System.out.println("Sent full message to " + peerPort + " for IWANT request and aggregated response");
+        } catch (Exception e) {
+            System.err.println("Error sending full message to " + peerPort + ": " + e.getMessage());
         }
     }
     
@@ -242,16 +295,7 @@ public class Aggregator {
     public void addSeenRequest(String requestId) {
         seenRequests.add(requestId);
     }
-    
-    public void recordMessageOrigin(String requestId, Integer peerPort) {
-        Set<Integer> origins = messageOrigins.computeIfAbsent(requestId, k -> ConcurrentHashMap.newKeySet());
-        origins.add(peerPort);
-    }
-    
-    public boolean isFirstTimeFromPeer(String requestId, Integer peerPort) {
-        Set<Integer> origins = messageOrigins.get(requestId);
-        return origins == null || !origins.contains(peerPort);
-    }
+
     
     public Set<String> getSeenRequests() {
         return seenRequests;
@@ -264,4 +308,6 @@ public class Aggregator {
     public Set<Integer> getLazyPeers() {
         return lazyPeers;
     }
+    
+
 }

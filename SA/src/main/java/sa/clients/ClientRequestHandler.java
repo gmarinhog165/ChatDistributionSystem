@@ -86,21 +86,18 @@ public class ClientRequestHandler implements Runnable {
                     // Add your own SC's info to the list
                     int[] localSCStats = querySCStatus();
                     SCInfo localSCInfo = new SCInfo(myPort+1, localSCStats[0], localSCStats[1]);
-                    
                     // Check if this SC is already in the list to avoid duplicates
                     boolean exists = scInfoList.stream()
                         .anyMatch(sc -> sc.getPort() == localSCInfo.getPort());
                     
                     if (!exists) {
                         scInfoList.add(localSCInfo);
-                        System.out.println("Added local SC info: " + localSCInfo);
                     }
                     
                     scInfoList.sort(Comparator
                         .comparingInt(SCInfo::getNumClients)
                         .thenComparingInt(SCInfo::getNumTopics));
                     
-                    System.out.println("Creating Topics on:");
                     System.out.println("Sorted SCs: " + scInfoList);
                     
                     // Get the SC servers with least load
@@ -109,6 +106,8 @@ public class ClientRequestHandler implements Runnable {
                         System.err.println("No SC servers available to create topic");
                         return;
                     }
+
+                    System.out.println("Creating topics on SCs: " + selectedSCs);
                     
                     // Build comma-separated list of SC server addresses
                     StringBuilder serverListBuilder = new StringBuilder();
@@ -233,7 +232,6 @@ public class ClientRequestHandler implements Runnable {
             // Connect to the SAConnectionManager's REP port
             requester.connect("tcp://localhost:" + (myPort - 2 + 200));
             
-            System.out.println("Sending STATUS_REQUEST to my own SC" + (myPort - 2 + 200));
             requester.send("STATUS_REQUEST");
             
             // Set timeout and receive response
