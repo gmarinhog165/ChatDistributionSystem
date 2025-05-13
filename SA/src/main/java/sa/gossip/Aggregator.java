@@ -135,14 +135,14 @@ public class Aggregator {
         String requestId = uuid;
         
         try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress("localhost", peerPort-2), 2000);
-            socket.setSoTimeout(3000); // Read timeout
+            socket.connect(new InetSocketAddress("localhost", peerPort-2), 5000);
+            socket.setSoTimeout(5000); // Read timeout
             
             BufferedWriter out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             
             // Send EAGER push message with TTL
-            String request = "EAGER_PUSH " + topic + " " + username + " " + ttl + " " + uuid + "\n";
+            String request = "EAGER_PUSH " + peerPort+ " " + topic + " " + username + " " + ttl + " " + uuid + "\n";
             System.out.println("Sending EAGER_PUSH to " + peerPort + ": " + request.trim());
             
             out.write(request);
@@ -196,7 +196,7 @@ public class Aggregator {
             return results;
             
         } catch (IOException e) {
-            System.err.println("Failed to contact peer " + peerPort + ": " + e.getMessage());
+            System.err.println("Failed to contact per " + peerPort + ": " + e.getMessage());
             return results;
         }
     }
@@ -210,7 +210,7 @@ public class Aggregator {
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             
             // Send LAZY push notification (metadata only)
-            String request = "LAZY_PUSH " + uuid + "\n";
+            String request = "LAZY_PUSH " + peerPort + " " + uuid + "\n";
             System.out.println("Sending LAZY_PUSH to " + peerPort + ": " + request.trim());
             
             out.write(request);
@@ -220,13 +220,13 @@ public class Aggregator {
             while ((line = in.readLine()) != null && !line.equals("END")) {
                 System.out.println("Lazy push response from " + peerPort + ": " + line);
                 
-                if (line.startsWith("IWANT")) {
+                if (line.startsWith("GRAFT")) {
                     // Handle IWANT message - peer wants the full message
                     String[] parts = line.split(" ");
                     if (parts.length >= 2) {
                         String wantedid = parts[1];
                         
-                        System.out.println("Received IWANT from " + peerPort + " for message id: " + wantedid);
+                        System.out.println("Received GRAFT from " + peerPort + " for message id: " + wantedid);
                         
                         // Send the full message to the peer that wants it and aggregate the response
                         executorService.submit(() -> 

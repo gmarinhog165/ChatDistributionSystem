@@ -51,55 +51,59 @@ public class GossipRequestHandler implements Runnable {
         }
     }
 
-    private void handleRequest(Socket socket) {
-        try {
-            int senderPort = socket.getPort();
-            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            BufferedWriter out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
-            //System.out.println("Handling incoming message from peer: " + socket.getInetAddress() + ":" + socket.getPort());
+private void handleRequest(Socket socket) {
+    try {
+        
+        BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        BufferedWriter out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
 
-            String line = in.readLine();
-            //System.out.println("Line: " + line);
-            if (line == null) {
-                socket.close();
-                return;
+        String line;
+        while ((line = in.readLine()) != null) {
+            if (line.trim().equals("END")) {
+                break;
             }
 
-            // Parse the message type - now supporting EAGER_PUSH and LAZY_PUSH
             String[] parts = line.split(" ");
+            if (parts.length == 0) continue;
+            System.out.println("MESSAGE " + line );
             String messageType = parts[0];
-            
-            if (messageType.equals("EAGER_PUSH")) {
-                handleEagerPush(parts, senderPort, in, out);
-            } else if (messageType.equals("LAZY_PUSH")) {
-                handleLazyPush(parts, senderPort, in, out);
-            } else if (messageType.equals("GRAFT")) {
-                handleGraft(parts, senderPort, in, out);
-            } else if (messageType.equals("PRUNE")){
-                handlePrune(parts,senderPort,in,out);
+            int senderPort = Integer.parseInt(parts[1]);
+
+            switch (messageType) {
+                case "EAGER_PUSH":
+                    handleEagerPush(parts, senderPort, in, out);
+                    break;
+                case "LAZY_PUSH":
+                    handleLazyPush(parts, senderPort, in, out);
+                    break;
+                case "GRAFT":
+                    handleGraft(parts, senderPort, in, out);
+                    break;
+                case "PRUNE":
+                    handlePrune(parts, senderPort, in, out);
+                    break;
+                default:
+                    System.out.println("Invalid message type received: " + messageType);
+                    break;
             }
-            else {
-                out.write("ERROR: Unknown message type\n");
-                out.write("END\n");
-                out.flush();
-            }
-            
-            socket.close();
-        } catch (IOException e) {
-            e.printStackTrace();
         }
+
+        socket.close();
+    } catch (IOException e) {
+        e.printStackTrace();
     }
-    
+}
    private void handleEagerPush(String[] parts, int senderPort, BufferedReader in, BufferedWriter out) throws IOException {
     if (!isValidFormat(parts, out)) return;
 
-    String topic = parts[1];
-    String username = parts[2];
-    int ttl = Integer.parseInt(parts[3]);
-    String uuid = parts[4];
+    String topic = parts[2];
+    String username = parts[3];
+    int ttl = Integer.parseInt(parts[4]);
+    String uuid = parts[5];
     String requestId = uuid;
-    System.out.println("Received EAGER_PUSH: " + requestId + " from " + senderPort + " with ttl " + ttl);
+    System.out.println("Received EAGER_PUSH: "+ requestId + " from " + senderPort + " with ttl " + ttl);
 
+    
     
     
     StoredMessage mes = pendingRequests.get(requestId);
@@ -137,10 +141,8 @@ public class GossipRequestHandler implements Runnable {
 }
 
 private boolean isValidFormat(String[] parts, BufferedWriter out) throws IOException {
-    if (parts.length < 5) {
-        out.write("ERROR: Incomplete EAGER_PUSH format\n");
-        out.write("END\n");
-        out.flush();
+    if (parts.length < 6) {
+        System.out.println("Incomplete eager push format.");
         return false;
     }
     return true;
@@ -165,7 +167,7 @@ private List<SCInfo> forwardToEagerPeers(String topic, String username, int ttl,
     List<SCInfo> collectedInfo = new ArrayList<>();
 
     for (Integer peer : this.eagerPeers) {
-        if (peer.equals(senderPort + 2)) {
+        if (peer.equals(senderPort)) {
             System.out.println("Skipping forwarding back to sender: " + peer);
             continue;
         }
@@ -190,7 +192,7 @@ private List<SCInfo> contactEagerPeer(int peer, String topic, String username, i
         BufferedWriter peerOut = new BufferedWriter(new OutputStreamWriter(peerSocket.getOutputStream()));
         BufferedReader peerIn = new BufferedReader(new InputStreamReader(peerSocket.getInputStream()));
 
-        peerOut.write("EAGER_PUSH " + topic + " " + username + " " + (ttl + 1) + " " + uuid + "\n");
+        peerOut.write("EAGER_PUSH " + (this.myPort+1) +  " " +  topic + " " + username + " " + (ttl + 1) + " " + uuid + "\n");
         peerOut.flush();
 
         String peerLine;
@@ -241,12 +243,12 @@ private SCInfo parseSCInfoLine(String line) {
 
 private void notifyLazyPeers(String uuid, int senderPort,Set<Integer> peers) {
     for (Integer peer : peers) {
-        if (peer.equals(senderPort + 2)) continue;
+        if (peer.equals(senderPort)) continue;
 
         CompletableFuture.runAsync(() -> {
             try (Socket peerSocket = new Socket("localhost", peer - 2)) {
                 BufferedWriter peerOut = new BufferedWriter(new OutputStreamWriter(peerSocket.getOutputStream()));
-                peerOut.write("LAZY_PUSH " + uuid + "\n");
+                peerOut.write("LAZY_PUSH " + (this.myPort+2) +" " + uuid + "\n");
                 peerOut.flush();
             } catch (IOException e) {
                 System.err.println("Failed lazy push to peer " + peer + ": " + e.getMessage());
@@ -267,14 +269,12 @@ private void notifyLazyPeers(String uuid, int senderPort,Set<Integer> peers) {
 
     
     private void handleLazyPush(String[] parts, int senderPort, BufferedReader in, BufferedWriter out) throws IOException {
-        if (parts.length < 2) {
-            out.write("ERROR: Incomplete LAZY_PUSH format\n");
-            out.write("END\n");
-            out.flush();
+        if (parts.length < 3) {
+            System.out.println("Incomplete lazy push format");
             return;
         }
         
-        String uuid = parts[1];
+        String uuid = parts[2];
         String requestId = uuid;
         
         System.out.println("Received LAZY_PUSH: " + requestId + " from " + senderPort);
@@ -303,13 +303,13 @@ private void handleGraft(String[] parts, int senderPort, BufferedReader in, Buff
 
             if (msg != null) {
                 System.out.println("Responding to GRAFT with EAGER_PUSH to " + senderPort);
-                out.write("EAGER_PUSH " + msg.getTopic() + " " + msg.getUsername() + " " + (msg.getTTL()+1) + " " + wantedId + "\n");
+                out.write("EAGER_PUSH " + (this.myPort+1) + " " + msg.getTopic() + " " + msg.getUsername() + " " + (msg.getTTL()+1) + " " + wantedId + "\n");
             } else {
                 System.out.println("Requested message not found: " + wantedId);
                 out.write("ERROR: Requested message not found\n");
             }
         } else {
-            out.write("ERROR: Malformed GRAFT\n");
+            System.out.println("Malformed Graft.");
         }
 
         out.write("END\n");
