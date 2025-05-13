@@ -22,7 +22,7 @@ public class GossipRequestHandler implements Runnable {
     // Store SC information collected from the network
     private final ConcurrentHashMap<String, SCInfo> networkSCInfo = new ConcurrentHashMap<>();
 
-    public GossipRequestHandler(Integer myPort, CyclonPeer cyclonPeer, Aggregator aggregator) {
+    public GossipRequestHandler(Integer myPort, CyclonPeer cyclonPeer) {
         this.myPort = myPort;
         this.cyclonPeer = cyclonPeer;
         initializePeerSets();
@@ -77,8 +77,6 @@ public class GossipRequestHandler implements Runnable {
                 handleGraft(parts, senderPort, in, out);
             } else if (messageType.equals("PRUNE")){
                 handlePrune(parts,senderPort,in,out);
-            } else if (messageType.equals("IWANT")){
-                handleIWant(parts,senderPort,in,out);
             }
             else {
                 out.write("ERROR: Unknown message type\n");
@@ -121,12 +119,20 @@ public class GossipRequestHandler implements Runnable {
 
     if (ttl < Config.GOSSIP_TTL) {
         collectedInfo = forwardToEagerPeers(topic, username, ttl, uuid, senderPort, requestId);
-        notifyLazyPeers(uuid, senderPort);
+        
+        notifyLazyPeers(uuid, senderPort,this.lazyPeers);
     } else {
         System.out.println("Max propagation ttl reached, switching to lazy push");
-        notifyAllPeersLazy(uuid, senderPort);
+        Set<Integer> allPeers = new HashSet<>(eagerPeers);
+        allPeers.addAll(lazyPeers);
+        notifyLazyPeers(uuid, senderPort,allPeers);
     }
-
+    try {
+        Thread.sleep(2000);
+    } catch (InterruptedException e) {
+        // TODO Auto-generated catch block
+        e.printStackTrace();
+    }
     sendCollectedSCInfo(out, collectedInfo);
 }
 
@@ -233,8 +239,8 @@ private SCInfo parseSCInfoLine(String line) {
     return null;
 }
 
-private void notifyLazyPeers(String uuid, int senderPort) {
-    for (Integer peer : this.lazyPeers) {
+private void notifyLazyPeers(String uuid, int senderPort,Set<Integer> peers) {
+    for (Integer peer : peers) {
         if (peer.equals(senderPort + 2)) continue;
 
         CompletableFuture.runAsync(() -> {
@@ -249,23 +255,6 @@ private void notifyLazyPeers(String uuid, int senderPort) {
     }
 }
 
-    private void notifyAllPeersLazy(String uuid, int senderPort) {
-        System.out.println("Notifing all peers on lazy mode.");
-        for (Integer peer : this.eagerPeers) {
-            if (peer.equals(senderPort + 2)) continue;
-        
-            CompletableFuture.runAsync(() -> {
-                try (Socket peerSocket = new Socket("localhost", peer - 2)) {
-                    BufferedWriter peerOut = new BufferedWriter(new OutputStreamWriter(peerSocket.getOutputStream()));
-                    peerOut.write("LAZY_PUSH " + uuid + "\n");
-                    peerOut.flush();
-                } catch (IOException e) {
-                    System.err.println("Failed lazy push at max ttl to peer " + peer + ": " + e.getMessage());
-                }
-            });
-        }
-    }
-
     private void sendCollectedSCInfo(BufferedWriter out, List<SCInfo> collectedInfo) throws IOException {
         for (SCInfo info : collectedInfo) {
             if (info != null && info.getPort() != this.myPort) {
@@ -278,7 +267,7 @@ private void notifyLazyPeers(String uuid, int senderPort) {
 
     
     private void handleLazyPush(String[] parts, int senderPort, BufferedReader in, BufferedWriter out) throws IOException {
-        if (parts.length < 4) {
+        if (parts.length < 2) {
             out.write("ERROR: Incomplete LAZY_PUSH format\n");
             out.write("END\n");
             out.flush();
@@ -293,97 +282,45 @@ private void notifyLazyPeers(String uuid, int senderPort) {
         // Check if we've seen this message before
         StoredMessage mes = pendingRequests.get(requestId);
         if (mes==null) {
-            // We haven't seen this message yet - send IWANT to get the full message
+            // We haven't seen this message yet - send Graft to get the full message
             System.out.println("Unknown message ID, sending GRAFT for " + requestId);
-            out.write("IWANT " + uuid + "\n");
             out.write("GRAFT " + uuid + "\n");
         } else {
             System.out.println("Already have message " + requestId + ", no GRAFT needed");
-            propagateLazyPushToNeighbors(uuid, requestId);
         }
         
         out.write("END\n");
         out.flush();
     }
 
-    private void propagateLazyPushToNeighbors(String uuid, String requestId) {
-    System.out.println("Propagating message " + requestId + " to both eager and lazy peers");
+
     
-    StoredMessage message = pendingRequests.get(requestId);
-    if (message == null) {
-        System.err.println("Cannot propagate message " + requestId + ": not found in pendingRequests");
-        return;
-    }
-    
-    // For eager peers: send the full message via EAGER_PUSH
-    for (Integer peer : this.eagerPeers) {
-        CompletableFuture.runAsync(() -> {
-            try (Socket peerSocket = new Socket("localhost", peer - 2)) {
-                BufferedWriter peerOut = new BufferedWriter(new OutputStreamWriter(peerSocket.getOutputStream()));
-                // Send full message to eager peers
-                peerOut.write("EAGER_PUSH " + message.getTopic() + " " + message.getUsername() + " " + 
-                             message.getTTL() + " " + uuid + "\n");
-                peerOut.flush();
-                System.out.println("Forwarded EAGER_PUSH for " + requestId + " to eager peer " + peer);
-                
-                // Read response
-                BufferedReader peerIn = new BufferedReader(new InputStreamReader(peerSocket.getInputStream()));
-                String peerLine;
-                while ((peerLine = peerIn.readLine()) != null && !peerLine.equals("END")) {
-                    if (peerLine.startsWith("PRUNE")) {
-                        System.out.println("Received PRUNE from " + peer + ", moving to lazy set");
-                        moveToLazySet(peer);
-                    }
-                }
-            } catch (IOException e) {
-                System.err.println("Failed to forward EAGER_PUSH to peer " + peer + ": " + e.getMessage());
-            }
-        });
-    }
-    
-    // For lazy peers: just send the message ID via LAZY_PUSH
-    for (Integer peer : this.lazyPeers) {
-        CompletableFuture.runAsync(() -> {
-            try (Socket peerSocket = new Socket("localhost", peer - 2)) {
-                BufferedWriter peerOut = new BufferedWriter(new OutputStreamWriter(peerSocket.getOutputStream()));
-                peerOut.write("LAZY_PUSH " + uuid + "\n");
-                peerOut.flush();
-                System.out.println("Forwarded LAZY_PUSH for " + requestId + " to lazy peer " + peer);
-            } catch (IOException e) {
-                System.err.println("Failed to forward LAZY_PUSH to peer " + peer + ": " + e.getMessage());
-            }
-        });
-    }
-}
-    
-    private void handleIWant(String[] parts, int senderPort, BufferedReader in, BufferedWriter out){
+private void handleGraft(String[] parts, int senderPort, BufferedReader in, BufferedWriter out) {
+    try {
         if (parts.length >= 2) {
-            System.out.println("Handling IWANT message.");
-            String wantedid = parts[1];
-            StoredMessage mes = pendingRequests.get(wantedid);
-            contactEagerPeer(senderPort, mes.getTopic(),mes.getUsername(),mes.getTTL(),wantedid);
-        }
-        else{
-            System.out.println("Invalid format for IWANT");
+            String wantedId = parts[1];
+            StoredMessage msg = pendingRequests.get(wantedId);
+
+            if (msg != null) {
+                System.out.println("Responding to GRAFT with EAGER_PUSH to " + senderPort);
+                out.write("EAGER_PUSH " + msg.getTopic() + " " + msg.getUsername() + " " + (msg.getTTL()+1) + " " + wantedId + "\n");
+            } else {
+                System.out.println("Requested message not found: " + wantedId);
+                out.write("ERROR: Requested message not found\n");
+            }
+        } else {
+            out.write("ERROR: Malformed GRAFT\n");
         }
 
+        out.write("END\n");
+        out.flush();
+    } catch (IOException e) {
+        e.printStackTrace(); // Or handle error gracefully
     }
-    private void handleGraft(String[] parts, int senderPort, BufferedReader in, BufferedWriter out) throws IOException {
-        if (parts.length < 2) {
-            out.write("ERROR: Incomplete GRAFT format\n");
-            out.write("END\n");
-            out.flush();
-            return;
-        }
-        
-        String uuid = parts[1];
-        String requestId = uuid;
-        
-        System.out.println("Received GRAFT request for " + requestId + " from " + senderPort);
-        
-        // Move the sender to our eager set
-        moveToEagerSet(senderPort + 2);    
-    }
+}
+
+
+
     
     private int[] querySCStatus() {
         int numClients = -1;

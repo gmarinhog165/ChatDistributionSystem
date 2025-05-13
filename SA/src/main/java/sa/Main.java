@@ -37,7 +37,7 @@ public class Main {
         //a porta para interaões com clientes é port-1
         ClientRequestHandler clientHandler = new ClientRequestHandler(port-1,peer,aggregator);
         //a porta para o gossip é port-2
-        GossipRequestHandler gossipHandler = new GossipRequestHandler(port-2,peer,aggregator);
+        GossipRequestHandler gossipHandler = new GossipRequestHandler(port-2,peer);
 
         new Thread(clientHandler).start();
         new Thread(gossipHandler).start();
