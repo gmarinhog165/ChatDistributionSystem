@@ -1,11 +1,9 @@
 pt/uminho/di/proto/ChatServiceGrpc$1.class
 pt/uminho/di/proto/JoinLeaveRequestOrBuilder.class
 pt/uminho/di/proto/SendMessageRequest$Builder.class
-pt/uminho/di/config/Config.class
 pt/uminho/di/proto/SubscribeRequestOrBuilder.class
 pt/uminho/di/proto/GetLogResponse$1.class
 pt/uminho/di/proto/Rx3ChatServiceGrpc$RxChatServiceStub$10.class
-pt/uminho/di/teste/ChatClient.class
 pt/uminho/di/proto/ChatServiceGrpc$MethodHandlers.class
 pt/uminho/di/proto/Rx3ChatServiceGrpc$MethodHandlers$2.class
 pt/uminho/di/proto/Rx3ChatServiceGrpc$RxChatServiceStub$3.class
@@ -19,6 +17,7 @@ pt/uminho/di/proto/JoinLeaveResponseOrBuilder.class
 pt/uminho/di/proto/SendMessageResponse$1.class
 pt/uminho/di/proto/Rx3ChatServiceGrpc$RxChatServiceStub$11.class
 pt/uminho/di/proto/GetUsersResponse$Builder.class
+pt/uminho/di/Dot.class
 pt/uminho/di/SAConnectionManager.class
 pt/uminho/di/proto/GetLogRequest.class
 pt/uminho/di/proto/Rx3ChatServiceGrpc$RxChatServiceStub$4.class
@@ -65,6 +64,7 @@ pt/uminho/di/proto/Rx3ChatServiceGrpc$MethodHandlers$1.class
 pt/uminho/di/proto/Rx3ChatServiceGrpc$RxChatServiceStub$9.class
 pt/uminho/di/teste/SAMock.class
 pt/uminho/di/proto/GetUsersResponse.class
+pt/uminho/di/ORSet.class
 pt/uminho/di/proto/SendMessageRequest.class
 pt/uminho/di/proto/ChatServiceGrpc$2.class
 pt/uminho/di/proto/GetUsersResponseOrBuilder.class
@@ -75,6 +75,7 @@ pt/uminho/di/ChatServer.class
 pt/uminho/di/proto/JoinLeaveRequest$Builder.class
 pt/uminho/di/proto/SendMessageRequest$1.class
 pt/uminho/di/proto/SendMessageResponse$Builder.class
+pt/uminho/di/UserSetContainer.class
 pt/uminho/di/proto/GetUsersRequest$Builder.class
 pt/uminho/di/proto/SubscribeRequest$1.class
 pt/uminho/di/proto/Rx3ChatServiceGrpc$MethodHandlers$5.class

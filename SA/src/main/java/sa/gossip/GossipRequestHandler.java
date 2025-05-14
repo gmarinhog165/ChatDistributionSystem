@@ -248,7 +248,7 @@ private void notifyLazyPeers(String uuid, int senderPort,Set<Integer> peers) {
         CompletableFuture.runAsync(() -> {
             try (Socket peerSocket = new Socket("localhost", peer - 2)) {
                 BufferedWriter peerOut = new BufferedWriter(new OutputStreamWriter(peerSocket.getOutputStream()));
-                peerOut.write("LAZY_PUSH " + (this.myPort+2) +" " + uuid + "\n");
+                peerOut.write("LAZY_PUSH " + (this.myPort+2) + " " + uuid + "\n");
                 peerOut.flush();
             } catch (IOException e) {
                 System.err.println("Failed lazy push to peer " + peer + ": " + e.getMessage());

@@ -60,15 +60,16 @@ public class ClientRequestHandler implements Runnable {
                 return;
             }
             
-            String[] parts = request.split(" ", 3);
-            if (parts.length != 3) {
-                out.write("ERROR: Missing topic name or username\n");
+            String[] parts = request.split(" ", 4);
+            if (parts.length != 4) {
+                out.write("ERROR: Missing topic name, username or spPort\n");
                 out.flush();
                 return;
             }
             
             String topic = parts[1].trim();
             String username = parts[2].trim();
+            int spPort = Integer.parseInt(parts[3].trim());
             
             System.out.println("Received request to create topic '" + topic + "' from user '" + username + "'");
             
@@ -126,6 +127,8 @@ public class ClientRequestHandler implements Runnable {
                     }
                     
                     System.out.println("Topic '" + topic + "' created successfully on SC servers: " + serverList);
+
+                    sendTopicToSP(topic, selectedSCs,spPort);
                     
                 } catch (InterruptedException | ExecutionException | TimeoutException e) {
                     System.err.println("Error getting aggregation results: " + e.getMessage());
@@ -155,11 +158,7 @@ public class ClientRequestHandler implements Runnable {
     
     /**
      * Configure the topic on a specific SC server using ZeroMQ
-     */
-    /**
-     * Configure the topic on a specific SC server using ZeroMQ
-     * Based on the SC's SAConnectionManager implementation
-     */
+    **/
     private void configureTopicOnSC(SCInfo sc, String topic, String serverList) {
     int scPort = sc.getPort();
     // Match the port calculation with SAConnectionManager (port - 1)
@@ -254,4 +253,38 @@ public class ClientRequestHandler implements Runnable {
         
         return new int[]{numClients, numTopics};
     }
+
+private void sendTopicToSP(String topic, List<SCInfo> selectedSCs,int spPort) {
+    String spHost = "localhost"; // change if SP is on another host
+    
+    try (Socket spSocket = new Socket(spHost, spPort);
+         BufferedWriter spOut = new BufferedWriter(new OutputStreamWriter(spSocket.getOutputStream()));
+         BufferedReader spIn = new BufferedReader(new InputStreamReader(spSocket.getInputStream()))) {
+        
+        // Build the SCs list string in format ip:port,ip:port,...
+        StringBuilder scListBuilder = new StringBuilder();
+        for (int i = 0; i < selectedSCs.size(); i++) {
+            SCInfo sc = selectedSCs.get(i);
+            scListBuilder.append("localhost:").append(sc.getPort() - 3); // SC client port
+            if (i < selectedSCs.size() - 1) {
+                scListBuilder.append(",");
+            }
+        }
+
+        String message = "REGISTER_TOPIC:" + topic + ":" + scListBuilder.toString() + "\n";
+        System.out.println("Sending to SP: " + message.trim());
+
+        spOut.write(message);
+        spOut.flush();
+
+        // Read the response from SP
+        String response = spIn.readLine();
+        System.out.println("SP Response: " + response);
+
+    } catch (IOException e) {
+        System.err.println("Failed to send topic info to SP: " + e.getMessage());
+        e.printStackTrace();
+    }
+}
+
 }

@@ -19,7 +19,7 @@ FULL_CLASSPATH="target/classes:$MAVEN_CLASSPATH"
 echo "Using classpath: $FULL_CLASSPATH"
 
 # Array of ports
-PORTS=(10000 15000 20000 25000 30000)
+PORTS=(10000 15000 20000 25000 27000)
 
 # Launch 5 instances with different ports
 for i in {0..4}

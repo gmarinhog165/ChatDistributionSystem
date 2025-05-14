@@ -16,7 +16,7 @@ DEPS=$(cat cp.txt)
 CP="target/classes:$DEPS"
 
 # List of specific ports
-PORTS=(9997 14997 19997 24997 29997)
+PORTS=(9997 14997 19997 24997 26997)
 
 # Loop through the specified ports and launch a ChatServer instance for each
 for PORT in "${PORTS[@]}"

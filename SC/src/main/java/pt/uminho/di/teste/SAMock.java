@@ -10,8 +10,8 @@ public class SAMock {
 
     public static void main(String[] args) throws Exception {
         String topic = "test_topic";
-        String servers = "localhost:50052,localhost:50062";
-        int scPort = 50062; // The SC port we're targeting
+        String servers = "localhost:5000";
+        int scPort = 5000; // The SC port we're targeting
 
         try (ZContext context = new ZContext()) {
             // Create publisher socket for topic configuration
