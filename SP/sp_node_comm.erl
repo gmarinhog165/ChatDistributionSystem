@@ -133,13 +133,14 @@ handle_node_request(Socket) ->
                     CurrentRing = sp_dht:get_ring(),
                     {Ip, Port} = NodeAddr,
                     
-                    % Create virtual nodes for the new physical node
+                    % Create virtual nodes for the new physical node - use the same constant as in sp_dht
+                    VNodesPerNode = 5, % This should match ?VNODES_PER_NODE from sp_dht.erl
                     VNodes = lists:map(
                         fun(VNodeIndex) ->
                             Hash = sp_dht:hash_node({NodeId, Ip, Port}, VNodeIndex),
                             {Hash, NodeId, NodeAddr, VNodeIndex}
                         end,
-                        lists:seq(0, 19) % 20 virtual nodes
+                        lists:seq(0, VNodesPerNode - 1)
                     ),
                     
                     % Combine with current ring
