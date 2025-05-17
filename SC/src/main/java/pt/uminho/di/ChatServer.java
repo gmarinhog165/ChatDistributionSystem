@@ -67,7 +67,7 @@ public class ChatServer {
 
     public static void main(String[] args) throws Exception {
         // Default port
-        int port = 50052;
+        int port = 50062;
         String hostname = InetAddress.getLocalHost().getHostName();
 
         if (args.length > 0) {
@@ -79,7 +79,7 @@ public class ChatServer {
         }
 
         // Create server ID in format "hostname:port"
-        String serverId = hostname + ":" + port;
+        String serverId = "localhost" + ":" + port;
 
         if (args.length > 1) {
             serverId = args[1];
