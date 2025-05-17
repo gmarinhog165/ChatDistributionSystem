@@ -68,7 +68,6 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
                         .build();
             }
 
-            // Initialize topic structures if this is the first join
             this.chatMessages.computeIfAbsent(topic, k -> Collections.synchronizedList(new ArrayList<>()));
             this.topicPublishers.computeIfAbsent(topic, k -> PublishSubject.create());
 
@@ -161,6 +160,7 @@ public class ChatServiceImpl extends Rx3ChatServiceGrpc.ChatServiceImplBase {
         return request.map(req -> {
             String topic = req.getTopic();
             String username = req.getUsername();
+          
             if(!this.topicUsers.containsKey(topic) || !this.topicUsers.get(topic).elements().contains(username)) {
                 return GetUsersResponse.newBuilder()
                         .setSuccess(false)
