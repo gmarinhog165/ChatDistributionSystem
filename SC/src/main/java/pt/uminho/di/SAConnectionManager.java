@@ -6,7 +6,6 @@ import org.zeromq.ZMQ;
 
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -43,12 +42,13 @@ public class SAConnectionManager {
         this.context = new ZContext();
 
         // Socket for receiving topic configurations
-        this.subscribeSocket = context.createSocket(SocketType.SUB);
-        this.subscribeSocket.connect("tcp://localhost:" + (port - 1)); // SA usually runs on port-1
-        this.subscribeSocket.subscribe("".getBytes());
+        this.subscribeSocket = context.createSocket(SocketType.PULL);
+        System.out.println("zerosocket on port " + (port-1));
+        this.subscribeSocket.bind("tcp://localhost:" + (port - 1)); // SA usually runs on port-1
 
         // Socket for handling request-reply pattern
         this.replySocket = context.createSocket(SocketType.REP);
+        System.out.println("Status socket on port " + (port+200));
         this.replySocket.bind("tcp://*:" + (port + 200)); // Using port+200 for REP socket
 
         this.executor = Executors.newFixedThreadPool(2); // One thread for SUB, one for REP
@@ -60,35 +60,45 @@ public class SAConnectionManager {
     }
 
     private void startSAMessageReceiver() {
-        executor.submit(() -> {
-            logger.info("Starting SA message receiver thread");
+    executor.submit(() -> {
+        logger.info("Starting SA message receiver thread");
+        System.out.println("Waiting for messages on PULL socket...");
 
-            while (running && !Thread.currentThread().isInterrupted()) {
-                try {
-                    String command = subscribeSocket.recvStr();
-                    if (command == null) continue;
-
-                    if (CMD_TOPIC_CONFIG.equals(command)) {
-                        String topic = subscribeSocket.recvStr();
-                        if (topic == null) continue;
-
-                        String serversStr = subscribeSocket.recvStr();
-                        if (serversStr == null) continue;
-
-                        Set<String> servers = Set.of(serversStr.split(","));
-
-                        logger.info("Received topic configuration from SA: " + topic + " with servers: " + servers);
-
-                        configureTopic(topic, servers);
-                    }
-                } catch (Exception e) {
-                    logger.warning("Error receiving message from SA: " + e.getMessage());
+        while (running && !Thread.currentThread().isInterrupted()) {
+            try {
+                // Using PULL now, so we get a single message, not multi-frame
+                String message = subscribeSocket.recvStr(1000); // 1 second timeout
+                
+                if (message == null) {
+                    continue; // No message received, try again
                 }
+                
+                System.out.println("Received raw message: " + message);
+                
+                // Parse the message that should be in format "CMD|TOPIC|SERVERS"
+                String[] parts = message.split("\\|");
+                if (parts.length < 3 || !CMD_TOPIC_CONFIG.equals(parts[0])) {
+                    logger.warning("Invalid message format received: " + message);
+                    continue;
+                }
+                
+                String topic = parts[1];
+                Set<String> servers = Set.of(parts[2].split(","));
+                
+                logger.info("Received topic configuration from SA: " + topic + " with servers: " + servers);
+                System.out.println("Configuring topic: " + topic + " with servers: " + servers);
+                
+                configureTopic(topic, servers);
+                
+            } catch (Exception e) {
+                logger.warning("Error receiving message from SA: " + e.getMessage());
+                e.printStackTrace();
             }
+        }
 
-            logger.info("SA message receiver thread stopped");
-        });
-    }
+        logger.info("SA message receiver thread stopped");
+    });
+}
 
     private void startRequestHandler() {
         executor.submit(() -> {

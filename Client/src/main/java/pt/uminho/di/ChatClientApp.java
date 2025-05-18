@@ -11,7 +11,7 @@ public class ChatClientApp {
 
     public static void main(String[] args) {
         String spHost = "localhost";
-        int spPort = 50060;  // Default SP port
+        int spPort = 30000;  // Default SP port
 
         String username = "user" + System.currentTimeMillis() % 1000; // Default username
 
@@ -40,7 +40,7 @@ public class ChatClientApp {
         // Create the clients
         SPClient spClient = new SPClient(spHost, spPort);
         SCClient scClient = new SCClient();
-        SAClient saClient = new SAClient(); // This will be implemented later
+        SAClient saClient = new SAClient("localhost",9999,username,spPort);
 
         // Create and run the client menu
         final ChatClientMenu clientMenu = new ChatClientMenu(username, spClient, scClient, saClient);

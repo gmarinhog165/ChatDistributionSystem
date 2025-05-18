@@ -1,24 +1,47 @@
 package pt.uminho.di;
 
-/**
- * Client for communication with the SA server via TCP
- * (To be implemented later)
- */
+import java.io.*;
+import java.net.*;
+
 public class SAClient {
+
+    private final String host;
+    private final int port;
+    private final String username; // Username assumed to be needed as per protocol
+    private final int spPort;
+
+    public SAClient(String host, int port, String username,int spPort) {
+        this.host = host;
+        this.port = port;
+        this.username = username;
+        this.spPort = spPort;
+    }
 
     /**
      * Communicate with SA to create a new topic
-     * (To be implemented later)
      */
     public void createTopic(String topic) {
-        System.out.println("Creating topic feature will be implemented later.");
-        // TODO: Implement SA communication to create new topic
+        try (Socket socket = new Socket(host, port);
+             BufferedWriter out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
+
+            String request = "CREATE_TOPIC " + topic + " " + username + " " + spPort;
+            System.out.println("Sending: " + request);
+            out.write(request + "\n");
+            out.flush();
+
+            String response = in.readLine();
+            System.out.println("Response from SA: " + response);
+
+        } catch (IOException e) {
+            System.err.println("Failed to create topic: " + e.getMessage());
+        }
     }
 
     /**
      * Shutdown client connections
      */
     public void shutdown() {
-        // No implementation required yet
+        // Nothing needed yet
     }
 }
